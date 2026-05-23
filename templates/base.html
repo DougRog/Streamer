@@ -11,71 +11,87 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head %}{% endblock %}
 </head>
-<body class="bg-dark text-light">
+<body>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-bold text-warning" href="/">
-      <i class="bi bi-broadcast-pin me-2"></i>Streamer MCR
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
-            data-bs-target="#navmenu">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navmenu">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
-             href="/">
-            <i class="bi bi-speedometer2 me-1"></i>Dashboard
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'calendar' %}active{% endif %}"
-             href="/calendar">
-            <i class="bi bi-calendar3 me-1"></i>Schedule
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'channels' %}active{% endif %}"
-             href="/channels">
-            <i class="bi bi-collection-play me-1"></i>Channels
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'assets' %}active{% endif %}"
-             href="/assets">
-            <i class="bi bi-film me-1"></i>Media Pool
-          </a>
-        </li>
-      </ul>
-      <span class="navbar-text text-secondary small" id="utc-clock"></span>
-    </div>
-  </div>
+<!-- ====================================================== -->
+<!--  Navigation                                           -->
+<!-- ====================================================== -->
+<nav class="mcr-nav">
+  <a href="/" class="brand">
+    <div class="brand-icon"><i class="bi bi-broadcast-pin"></i></div>
+    Streamer MCR
+  </a>
+
+  <ul class="nav-links">
+    <li>
+      <a href="/" class="{% if request.endpoint == 'index' %}active{% endif %}">
+        <i class="bi bi-speedometer2"></i> Dashboard
+      </a>
+    </li>
+    <li>
+      <a href="/calendar" class="{% if request.endpoint == 'calendar' %}active{% endif %}">
+        <i class="bi bi-calendar3"></i> Schedule
+      </a>
+    </li>
+    <li>
+      <a href="/channels" class="{% if request.endpoint == 'channels' %}active{% endif %}">
+        <i class="bi bi-collection-play"></i> Channels
+      </a>
+    </li>
+    <li>
+      <a href="/library" class="{% if request.endpoint == 'library' %}active{% endif %}">
+        <i class="bi bi-film"></i> Media Library
+      </a>
+    </li>
+  </ul>
+
+  <span class="clock" id="utc-clock"></span>
 </nav>
 
-<div class="container-fluid py-3 px-4">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-      <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
-        {{ msg }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-      </div>
-    {% endfor %}
-  {% endwith %}
+<!-- ====================================================== -->
+<!--  Toast container                                       -->
+<!-- ====================================================== -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999" id="toast-area"></div>
 
+<!-- ====================================================== -->
+<!--  Page                                                  -->
+<!-- ====================================================== -->
+<div class="page-wrap">
   {% block content %}{% endblock %}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-  // UTC clock
-  function updateClock() {
+  // Live UTC clock
+  function _tick() {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
     document.getElementById('utc-clock').textContent =
-      new Date().toUTCString().replace(' GMT', ' UTC');
+      `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} `
+      + `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC`;
   }
-  updateClock();
-  setInterval(updateClock, 1000);
+  _tick(); setInterval(_tick, 1000);
+
+  // Toast helper — call from any page script
+  function showToast(msg, type='success', duration=3500) {
+    const icons = {success:'check-circle-fill', danger:'x-circle-fill',
+                   warning:'exclamation-triangle-fill', info:'info-circle-fill'};
+    const colors = {success:'var(--success)', danger:'var(--danger)',
+                    warning:'var(--warning)', info:'var(--accent-hover)'};
+    const id = 'toast-' + Date.now();
+    const html = `
+      <div id="${id}" class="toast show align-items-center" role="alert"
+           style="min-width:260px;border-left:3px solid ${colors[type]||colors.info}">
+        <div class="d-flex toast-body gap-2">
+          <i class="bi bi-${icons[type]||icons.info}" style="color:${colors[type]||colors.info};font-size:1rem;flex-shrink:0;margin-top:1px"></i>
+          <span>${msg}</span>
+          <button type="button" class="btn-close btn-close-white ms-auto"
+                  onclick="this.closest('.toast').remove()" style="font-size:0.65rem"></button>
+        </div>
+      </div>`;
+    document.getElementById('toast-area').insertAdjacentHTML('beforeend', html);
+    setTimeout(() => document.getElementById(id)?.remove(), duration);
+  }
 </script>
 {% block scripts %}{% endblock %}
 </body>

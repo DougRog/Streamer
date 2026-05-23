@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Media Library – Streamer MCR{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Media Library</h1>
+    <p class="page-sub mb-0">{{ pool_path }}</p>
+  </div>
+
+  <div class="d-flex align-items-center gap-2">
+    <span class="pill {% if scan.in_progress %}pill-scte{% else %}pill-idle{% endif %}" id="scan-status-badge">
+      {% if scan.in_progress %}
+        <span class="spinner-border spinner-border-sm" style="width:.6rem;height:.6rem;border-width:2px"></span>
+        Scanning {{ scan.done }}/{{ scan.total }}
+      {% else %}
+        {{ assets | length }} files
+      {% endif %}
+    </span>
+    <button class="btn btn-sm btn-ghost" onclick="triggerScan()" id="btn-scan">
+      <i class="bi bi-arrow-clockwise"></i> Scan Library
+    </button>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex gap-3 align-items-center flex-wrap">
+    <div style="flex:1;min-width:200px">
+      <input class="form-control form-control-sm" id="filter-name"
+             placeholder="Search by filename…" oninput="filterTable()">
+    </div>
+    <label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;user-select:none">
+      <input type="checkbox" class="form-check-input" id="filter-scte" onchange="filterTable()">
+      <span class="text-sub" style="font-size:0.82rem">SCTE-35 only</span>
+    </label>
+    <div class="text-muted" style="font-size:0.78rem" id="result-count"></div>
+  </div>
+</div>
+
+<!-- Asset table -->
+<div class="card">
+  <div class="table-responsive">
+    <table class="mcr-table" id="asset-table">
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Duration</th>
+          <th>Format</th>
+          <th>Codecs</th>
+          <th>Size</th>
+          <th>Scanned</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assets %}
+        <tr data-filename="{{ a.filename | lower }}"
+            data-scte="{{ '1' if a.has_scte else '0' }}">
+          <td>
+            <div class="d-flex align-items-start gap-2">
+              <i class="bi bi-file-earmark-play text-muted mt-1" style="font-size:1rem;flex-shrink:0"></i>
+              <div>
+                <div class="fw-500" style="color:#fff;font-size:0.85rem">{{ a.filename }}</div>
+                <div class="mono text-muted" style="font-size:0.68rem">{{ a.path }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="mono text-sub">{{ a.formatted_duration() }}</td>
+          <td>
+            {% if a.video_width and a.video_height %}
+              <span class="text-sub" style="font-size:0.82rem">
+                {{ a.video_width }}×{{ a.video_height }}
+                {% if a.video_fps %} · {{ a.video_fps|float|round(2) }} fps{% endif %}
+              </span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="d-flex gap-1 flex-wrap">
+              {% if a.video_codec %}
+                <span class="pill pill-idle">{{ a.video_codec }}</span>
+              {% endif %}
+              {% if a.audio_codec %}
+                <span class="pill pill-idle">{{ a.audio_codec }}</span>
+              {% endif %}
+              {% if a.has_scte %}
+                <span class="pill pill-scte"><span class="scte-dot me-1"></span>SCTE-35</span>
+              {% endif %}
+            </div>
+          </td>
+          <td class="text-sub" style="white-space:nowrap">{{ a.formatted_size() }}</td>
+          <td class="text-muted" style="font-size:0.75rem;white-space:nowrap">
+            {{ a.last_scanned.strftime('%m-%d %H:%M') if a.last_scanned else '—' }}
+          </td>
+          <td>
+            <div class="d-flex gap-1">
+              <button class="btn btn-xs btn-ghost" title="Copy path"
+                      onclick="copyPath('{{ a.path }}', this)">
+                <i class="bi bi-clipboard"></i>
+              </button>
+              <a href="/calendar?asset={{ a.path | urlencode }}"
+                 class="btn btn-xs btn-ghost" title="Schedule this file">
+                <i class="bi bi-calendar-plus"></i>
+              </a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center py-5">
+            <i class="bi bi-film" style="font-size:2rem;color:var(--text-muted)"></i>
+            <p class="mt-2 text-sub mb-1">No files found in the library.</p>
+            <button class="btn btn-sm btn-ghost mt-1" onclick="triggerScan()">
+              <i class="bi bi-arrow-clockwise"></i> Scan Library
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterTable() {
+  const name = document.getElementById('filter-name').value.toLowerCase();
+  const scteOnly = document.getElementById('filter-scte').checked;
+  let shown = 0;
+  document.querySelectorAll('#asset-table tbody tr[data-filename]').forEach(row => {
+    const ok = (!name || row.dataset.filename.includes(name))
+            && (!scteOnly || row.dataset.scte === '1');
+    row.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  });
+  const total = document.querySelectorAll('#asset-table tbody tr[data-filename]').length;
+  document.getElementById('result-count').textContent =
+    shown < total ? `${shown} of ${total} shown` : `${total} files`;
+}
+
+function triggerScan() {
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem;border-width:2px"></span>Scanning…';
+  fetch('/api/assets/scan', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.message || 'Scan started', 'info');
+      pollScan();
+    });
+}
+
+function pollScan() {
+  fetch('/api/assets/scan/status')
+    .then(r => r.json())
+    .then(s => {
+      const badge = document.getElementById('scan-status-badge');
+      if (s.in_progress) {
+        badge.innerHTML = `<span class="spinner-border spinner-border-sm" style="width:.6rem;height:.6rem;border-width:2px"></span> Scanning ${s.done}/${s.total}`;
+        setTimeout(pollScan, 1000);
+      } else {
+        showToast('Library scan complete', 'success');
+        setTimeout(() => location.reload(), 800);
+      }
+    });
+}
+
+function copyPath(path, btn) {
+  navigator.clipboard.writeText(path).then(() => {
+    btn.innerHTML = '<i class="bi bi-check2"></i>';
+    setTimeout(() => { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+  });
+}
+
+// Init result count
+filterTable();
+
+{% if scan.in_progress %}
+  document.getElementById('btn-scan').disabled = true;
+  pollScan();
+{% endif %}
+</script>
+{% endblock %}

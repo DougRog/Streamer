@@ -2,66 +2,70 @@
 {% block title %}Schedule – Streamer MCR{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.css">
-<style>
-  #calendar { background:#1a1a1a; border-radius:8px; padding:12px; }
-  .fc { color:#e0e0e0; }
-  .fc-toolbar-title { color:#fff; }
-  .fc-button { background:#333 !important; border-color:#555 !important; color:#eee !important; }
-  .fc-button:hover { background:#444 !important; }
-  .fc-button-active { background:#0d6efd !important; border-color:#0d6efd !important; }
-  .fc-day-today { background:rgba(255,193,7,0.06) !important; }
-  .fc-col-header-cell-cushion, .fc-daygrid-day-number { color:#aaa; text-decoration:none; }
-  .fc-event { cursor:pointer; font-size:0.8rem; }
-  .fc-timegrid-slot { border-color:#2a2a2a; }
-  .fc-scrollgrid { border-color:#333; }
-  .fc-scrollgrid td, .fc-scrollgrid th { border-color:#333; }
-</style>
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.css">
 {% endblock %}
 
 {% block content %}
-<div class="row g-3">
-
-  <!-- Controls bar -->
-  <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
-    <select class="form-select form-select-sm bg-dark text-light border-secondary"
-            id="channel-filter" style="max-width:200px;" onchange="filterChanged()">
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Schedule</h1>
+    <p class="page-sub mb-0">Plan and manage playout across all channels</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <select class="form-select form-select-sm" id="channel-filter"
+            style="width:auto;min-width:160px" onchange="filterChanged()">
       <option value="">All channels</option>
       {% for ch in channels %}
-        <option value="{{ ch.id }}" style="color:{{ ch.color }}">{{ ch.name }}</option>
+        <option value="{{ ch.id }}">{{ ch.name }}</option>
       {% endfor %}
     </select>
-    <button class="btn btn-sm btn-outline-success ms-auto" onclick="openNewEventModal()">
-      <i class="bi bi-plus-lg me-1"></i>New Event
+    <button class="btn btn-sm btn-ghost" onclick="openRepeatDayModal()"
+            title="Repeat a day's schedule every week indefinitely">
+      <i class="bi bi-arrow-repeat"></i> Repeat Day
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="openNewEventModal()">
+      <i class="bi bi-plus-lg"></i> New Event
     </button>
   </div>
-
-  <div class="col-12">
-    <div id="calendar"></div>
-  </div>
-
 </div>
 
-<!-- ======================================================= -->
-<!-- Event modal                                             -->
-<!-- ======================================================= -->
+<div id="calendar"></div>
+
+<!-- ================================================================ -->
+<!--  Event editor modal                                              -->
+<!-- ================================================================ -->
 <div class="modal fade" id="eventModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
-    <div class="modal-content bg-dark text-light border-secondary">
-      <div class="modal-header border-secondary">
+    <div class="modal-content">
+      <div class="modal-header">
         <h5 class="modal-title" id="eventModalTitle">New Event</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
 
-        <!-- Mode selector (shown only when editing a recurring event) -->
-        <div id="editModeRow" class="d-none mb-3">
-          <label class="form-label small text-secondary">Edit scope</label>
-          <div class="btn-group w-100" role="group">
-            <input type="radio" class="btn-check" name="editMode" id="modeThis" value="this" checked>
-            <label class="btn btn-outline-secondary btn-sm" for="modeThis">This occurrence</label>
-            <input type="radio" class="btn-check" name="editMode" id="modeAll" value="all">
-            <label class="btn btn-outline-secondary btn-sm" for="modeAll">All occurrences</label>
+        <!-- Recurring scope selector (shown only when editing a recurring event) -->
+        <div id="editScopeRow" class="d-none mb-3">
+          <label class="form-label">Editing scope</label>
+          <div class="d-flex gap-2">
+            <label class="d-flex align-items-center gap-2 flex-1 p-2 rounded"
+                   style="border:1px solid var(--border-md);cursor:pointer"
+                   id="scope-this-label">
+              <input type="radio" name="editMode" value="this" class="form-check-input m-0" checked>
+              <div>
+                <div style="font-size:0.82rem;font-weight:600;color:#fff">This occurrence</div>
+                <div style="font-size:0.72rem;color:var(--text-muted)">Override just this week</div>
+              </div>
+            </label>
+            <label class="d-flex align-items-center gap-2 flex-1 p-2 rounded"
+                   style="border:1px solid var(--border-md);cursor:pointer"
+                   id="scope-all-label">
+              <input type="radio" name="editMode" value="all" class="form-check-input m-0">
+              <div>
+                <div style="font-size:0.82rem;font-weight:600;color:#fff">All occurrences</div>
+                <div style="font-size:0.72rem;color:var(--text-muted)">Change every week</div>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -70,142 +74,223 @@
           <input type="hidden" id="f-occurrence-date">
 
           <div class="row g-3">
+            <!-- Title + channel -->
             <div class="col-md-8">
-              <label class="form-label small">Title *</label>
-              <input class="form-control bg-black text-light border-secondary"
-                     id="f-title" required>
+              <label class="form-label">Title</label>
+              <input class="form-control" id="f-title" placeholder="Show or segment name" required>
             </div>
             <div class="col-md-4">
-              <label class="form-label small">Channel *</label>
-              <select class="form-select bg-black text-light border-secondary" id="f-channel">
+              <label class="form-label">Channel</label>
+              <select class="form-select" id="f-channel">
                 {% for ch in channels %}
                   <option value="{{ ch.id }}">{{ ch.name }}</option>
                 {% endfor %}
               </select>
             </div>
 
-            <div class="col-md-6">
-              <label class="form-label small">Start (UTC) *</label>
-              <input type="datetime-local" class="form-control bg-black text-light border-secondary"
-                     id="f-start" required>
+            <!-- Start + duration -->
+            <div class="col-md-7">
+              <label class="form-label">Start time (UTC)</label>
+              <input type="datetime-local" class="form-control" id="f-start" required>
             </div>
-            <div class="col-md-6">
-              <label class="form-label small">Duration (seconds) *</label>
-              <input type="number" class="form-control bg-black text-light border-secondary"
-                     id="f-duration" value="3600" min="1" required>
+            <div class="col-md-5">
+              <label class="form-label">Duration</label>
+              <div class="input-group">
+                <input type="number" class="form-control" id="f-duration" value="3600" min="1">
+                <span class="input-group-text" style="background:var(--bg-elevated);border-color:var(--border-md);color:var(--text-sub)">sec</span>
+              </div>
+              <div id="duration-hint" class="text-muted mt-1" style="font-size:0.72rem"></div>
             </div>
 
+            <!-- Content type -->
             <div class="col-12">
-              <label class="form-label small">Type</label>
-              <div class="btn-group" role="group">
-                <input type="radio" class="btn-check" name="entryType" id="typeFile" value="file" checked>
-                <label class="btn btn-outline-secondary btn-sm" for="typeFile">
-                  <i class="bi bi-file-earmark-play me-1"></i>File
+              <label class="form-label">Content type</label>
+              <div class="d-flex gap-2">
+                <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                       style="border:1px solid var(--border-md);cursor:pointer" id="type-file-label">
+                  <input type="radio" name="entryType" value="file" class="form-check-input m-0" checked>
+                  <div>
+                    <div style="font-size:0.82rem;font-weight:600;color:#fff">
+                      <i class="bi bi-file-earmark-play me-1"></i>File
+                    </div>
+                    <div style="font-size:0.7rem;color:var(--text-muted)">MXF from library</div>
+                  </div>
                 </label>
-                <input type="radio" class="btn-check" name="entryType" id="typeLive" value="live">
-                <label class="btn btn-outline-secondary btn-sm" for="typeLive">
-                  <i class="bi bi-camera-video me-1"></i>Live SDI
+                <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                       style="border:1px solid var(--border-md);cursor:pointer" id="type-live-label">
+                  <input type="radio" name="entryType" value="live" class="form-check-input m-0">
+                  <div>
+                    <div style="font-size:0.82rem;font-weight:600;color:#fff">
+                      <i class="bi bi-camera-video me-1"></i>Live SDI
+                    </div>
+                    <div style="font-size:0.7rem;color:var(--text-muted)">Dektec pass-through</div>
+                  </div>
                 </label>
-                <input type="radio" class="btn-check" name="entryType" id="typeRec" value="recording">
-                <label class="btn btn-outline-secondary btn-sm" for="typeRec">
-                  <i class="bi bi-record-circle me-1"></i>Record + Air
+                <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                       style="border:1px solid var(--border-md);cursor:pointer" id="type-rec-label">
+                  <input type="radio" name="entryType" value="recording" class="form-check-input m-0">
+                  <div>
+                    <div style="font-size:0.82rem;font-weight:600;color:#fff">
+                      <i class="bi bi-record-circle me-1"></i>Record + Air
+                    </div>
+                    <div style="font-size:0.7rem;color:var(--text-muted)">Live → MXF + multicast</div>
+                  </div>
                 </label>
               </div>
             </div>
 
             <!-- File picker -->
             <div class="col-12" id="filePicker">
-              <label class="form-label small">Asset path</label>
+              <label class="form-label">Asset path</label>
               <div class="input-group">
-                <input class="form-control bg-black text-light border-secondary"
-                       id="f-asset-path" placeholder="/mnt/MasterControlMedia/…">
-                <button class="btn btn-outline-secondary" type="button"
-                        onclick="openAssetPicker()">Browse</button>
+                <input class="form-control mono" id="f-asset-path"
+                       placeholder="/mnt/MasterControlMedia/…">
+                <button class="btn btn-ghost" type="button" onclick="openAssetPicker()">
+                  <i class="bi bi-folder2-open"></i> Browse
+                </button>
               </div>
             </div>
 
             <!-- Live source -->
             <div class="col-12 d-none" id="liveSource">
-              <label class="form-label small">Live source</label>
-              <input class="form-control bg-black text-light border-secondary"
-                     id="f-live-source" value="dektec:0:0"
-                     placeholder="dektec:0:0 or udp://…">
+              <label class="form-label">Live source</label>
+              <input class="form-control mono" id="f-live-source"
+                     value="dektec:0:0" placeholder="dektec:0:0 or udp://…">
             </div>
 
-            <!-- Recurrence -->
+            <!-- Repeat / recurrence -->
             <div class="col-12">
-              <label class="form-label small">Repeat (RRULE)</label>
-              <div class="row g-2 mb-1">
-                <div class="col-auto">
-                  <button type="button" class="btn btn-xs btn-outline-secondary"
-                          onclick="setRrule('')">Once</button>
-                </div>
-                <div class="col-auto">
-                  <button type="button" class="btn btn-xs btn-outline-secondary"
-                          onclick="setRrule('FREQ=DAILY')">Daily</button>
-                </div>
-                <div class="col-auto">
-                  <button type="button" class="btn btn-xs btn-outline-secondary"
-                          onclick="setRrule('FREQ=WEEKLY')">Weekly</button>
-                </div>
-                <div class="col-auto">
-                  <button type="button" class="btn btn-xs btn-outline-secondary"
-                          onclick="setRrule('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')">Mon–Fri</button>
-                </div>
-                <div class="col-auto">
-                  <button type="button" class="btn btn-xs btn-outline-secondary"
-                          onclick="setRrule('FREQ=WEEKLY;BYDAY=SA,SU')">Weekends</button>
+              <label class="form-label">Repeat</label>
+              <div class="rrule-chips mb-2">
+                <span class="rrule-chip" onclick="setRrule('', this)">Once</span>
+                <span class="rrule-chip" onclick="setRrule('FREQ=DAILY', this)">Daily</span>
+                <span class="rrule-chip" onclick="setRrule('FREQ=WEEKLY', this)">Weekly</span>
+                <span class="rrule-chip" onclick="setRrule('FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', this)">Mon–Fri</span>
+                <span class="rrule-chip" onclick="setRrule('FREQ=WEEKLY;BYDAY=SA,SU', this)">Weekends</span>
+              </div>
+              <input class="form-control mono" id="f-rrule"
+                     placeholder="Leave blank for one-off, or RRULE string">
+            </div>
+
+            <!-- Colour + notes (collapsed by default) -->
+            <div class="col-12">
+              <button type="button" class="btn btn-xs btn-ghost w-100 text-start"
+                      data-bs-toggle="collapse" data-bs-target="#advancedFields">
+                <i class="bi bi-chevron-down me-1"></i> Colour & notes
+              </button>
+              <div class="collapse mt-2" id="advancedFields">
+                <div class="row g-3">
+                  <div class="col-md-3">
+                    <label class="form-label">Colour</label>
+                    <input type="color" class="form-control form-control-color"
+                           id="f-color" value="#6366f1">
+                  </div>
+                  <div class="col-md-9">
+                    <label class="form-label">Notes</label>
+                    <input class="form-control" id="f-notes" placeholder="Optional">
+                  </div>
                 </div>
               </div>
-              <input class="form-control bg-black text-light border-secondary font-monospace small"
-                     id="f-rrule" placeholder="Leave blank for one-off">
-            </div>
-
-            <div class="col-md-4">
-              <label class="form-label small">Colour</label>
-              <input type="color" class="form-control form-control-color bg-black border-secondary"
-                     id="f-color" value="#3788d8">
-            </div>
-            <div class="col-md-8">
-              <label class="form-label small">Notes</label>
-              <input class="form-control bg-black text-light border-secondary"
-                     id="f-notes" placeholder="Optional">
             </div>
           </div>
         </form>
-
       </div>
-      <div class="modal-footer border-secondary">
-        <button type="button" class="btn btn-danger me-auto d-none" id="btn-delete-event"
+      <div class="modal-footer">
+        <button class="btn btn-danger-soft me-auto d-none" id="btn-delete-event"
                 onclick="deleteEvent()">
-          <i class="bi bi-trash me-1"></i>Delete
+          <i class="bi bi-trash"></i> Delete
         </button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="saveEvent()">
-          <i class="bi bi-check2 me-1"></i>Save
+        <button class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEvent()">
+          <i class="bi bi-check2"></i> Save
         </button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Asset picker modal -->
-<div class="modal fade" id="assetModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
-    <div class="modal-content bg-dark text-light border-secondary">
-      <div class="modal-header border-secondary">
-        <h5 class="modal-title">Select Asset</h5>
+<!-- ================================================================ -->
+<!--  Repeat Day modal                                                -->
+<!-- ================================================================ -->
+<div class="modal fade" id="repeatDayModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-arrow-repeat me-2" style="color:var(--accent)"></i>
+          Repeat a Day's Schedule
+        </h5>
         <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input class="form-control bg-black text-light border-secondary mb-2"
-               id="asset-search" placeholder="Filter by name…" oninput="filterAssets()">
-        <div id="asset-list" class="table-responsive" style="max-height:400px;overflow-y:auto;"></div>
+        <p class="text-sub" style="font-size:0.85rem">
+          Select a channel and date. Every <strong>one-time event</strong> on that day
+          will be set to repeat every week indefinitely — you can still override or skip
+          individual occurrences from the calendar.
+        </p>
+
+        <div class="row g-3 mb-3">
+          <div class="col-8">
+            <label class="form-label">Channel</label>
+            <select class="form-select" id="rd-channel" onchange="loadRepeatPreview()">
+              {% for ch in channels %}
+                <option value="{{ ch.id }}">{{ ch.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Date</label>
+            <input type="date" class="form-control" id="rd-date" onchange="loadRepeatPreview()">
+          </div>
+        </div>
+
+        <!-- Preview list of events to be made recurring -->
+        <div id="rd-preview">
+          <label class="form-label">Events that will repeat weekly</label>
+          <div id="rd-preview-list">
+            <div class="text-muted" style="font-size:0.82rem">
+              Select a channel and date to preview events.
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3 pt-3" style="border-top:1px solid var(--border)">
+          <label class="form-label">End repeat (optional)</label>
+          <input type="date" class="form-control" id="rd-until"
+                 placeholder="Leave blank for indefinite">
+          <div class="text-muted mt-1" style="font-size:0.72rem">
+            Leave blank to repeat indefinitely.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="applyRepeatDay()" id="btn-repeat-apply" disabled>
+          <i class="bi bi-arrow-repeat"></i> Apply Weekly Repeat
+        </button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- ================================================================ -->
+<!--  Asset picker modal                                              -->
+<!-- ================================================================ -->
+<div class="modal fade" id="assetModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-film me-2"></i>Media Library</h5>
+        <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pb-2">
+        <input class="form-control mb-3" id="asset-search"
+               placeholder="Filter by filename…" oninput="filterAssets()">
+        <div id="asset-list" style="max-height:420px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

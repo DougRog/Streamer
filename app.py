@@ -65,11 +65,11 @@ def create_app():
         channels = Channel.query.order_by(Channel.name).all()
         return render_template('channels.html', channels=channels)
 
-    @app.route('/assets')
-    def assets():
+    @app.route('/library')
+    def library():
         assets = MediaAsset.query.order_by(MediaAsset.filename).all()
         return render_template(
-            'assets.html',
+            'library.html',
             assets=assets,
             scan=scan_status(),
             pool_path=config.MEDIA_POOL_PATH,
@@ -371,6 +371,55 @@ def create_app():
     @app.route('/api/recording/active', methods=['GET'])
     def api_active_recordings():
         return jsonify(stream_manager.active_recordings())
+
+    # ------------------------------------------------------------------ #
+    #  Repeat-day API                                                      #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/schedule/repeat-day', methods=['POST'])
+    def api_repeat_day():
+        """
+        Apply FREQ=WEEKLY to every one-time entry on the given day for a channel.
+        Body: { channel_id, date (YYYY-MM-DD), until? (YYYYMMDD, no dashes) }
+        """
+        from datetime import time as dtime
+        data = request.get_json(force=True)
+        channel_id = data.get('channel_id')
+        day_str = data.get('date')
+        until_str = data.get('until')
+
+        if not channel_id or not day_str:
+            return jsonify({'error': 'channel_id and date required'}), 400
+
+        try:
+            day_date = date.fromisoformat(day_str)
+        except ValueError:
+            return jsonify({'error': 'Invalid date — use YYYY-MM-DD'}), 400
+
+        day_start = datetime.combine(day_date, dtime.min)
+        day_end = datetime.combine(day_date, dtime.max)
+
+        rrule_str = 'FREQ=WEEKLY'
+        if until_str:
+            rrule_str += f';UNTIL={until_str}T235959Z'
+
+        entries = ScheduleEntry.query.filter_by(
+            channel_id=int(channel_id),
+            parent_id=None,
+        ).filter(
+            ScheduleEntry.rrule.is_(None),
+            ScheduleEntry.start_time >= day_start,
+            ScheduleEntry.start_time <= day_end,
+        ).all()
+
+        updated = []
+        for entry in entries:
+            entry.rrule = rrule_str
+            updated.append(entry.id)
+        db.session.commit()
+
+        return jsonify({'ok': True, 'count': len(updated), 'updated': updated,
+                        'rrule': rrule_str})
 
     # ------------------------------------------------------------------ #
     #  SCTE events API                                                     #

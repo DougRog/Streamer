@@ -8,7 +8,7 @@ function openCreateModal() {
   document.getElementById('cf-port').value  = '5000';
   document.getElementById('cf-bitrate').value = '6M';
   document.getElementById('cf-slate').checked = true;
-  document.getElementById('cf-color').value = '#3788d8';
+  document.getElementById('cf-color').value = '#6366f1';
   document.getElementById('cf-notes').value = '';
   channelModal.show();
 }
@@ -24,7 +24,7 @@ function editChannel(id) {
       document.getElementById('cf-port').value  = ch.multicast_port;
       document.getElementById('cf-bitrate').value = ch.video_bitrate || '6M';
       document.getElementById('cf-slate').checked = ch.slate_enabled;
-      document.getElementById('cf-color').value = ch.color || '#3788d8';
+      document.getElementById('cf-color').value = ch.color || '#6366f1';
       document.getElementById('cf-notes').value = ch.notes || '';
       channelModal.show();
     });
@@ -33,7 +33,7 @@ function editChannel(id) {
 function saveChannel() {
   const id = document.getElementById('cf-id').value;
   const payload = {
-    name:          document.getElementById('cf-name').value.trim(),
+    name:           document.getElementById('cf-name').value.trim(),
     multicast_addr: document.getElementById('cf-addr').value.trim(),
     multicast_port: parseInt(document.getElementById('cf-port').value),
     video_bitrate:  document.getElementById('cf-bitrate').value,
@@ -42,37 +42,35 @@ function saveChannel() {
     notes:          document.getElementById('cf-notes').value.trim(),
   };
 
-  if (!payload.name) { alert('Name is required'); return; }
-  if (!payload.multicast_addr) { alert('Multicast address is required'); return; }
+  if (!payload.name)           { showToast('Channel name is required', 'warning'); return; }
+  if (!payload.multicast_addr) { showToast('Multicast address is required', 'warning'); return; }
 
   const method = id ? 'PUT' : 'POST';
   const url    = id ? `/api/channels/${id}` : '/api/channels';
 
-  fetch(url, {
-    method,
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload),
-  })
+  fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
     .then(r => r.json())
     .then(d => {
-      if (d.error) { alert('Error: ' + d.error); return; }
+      if (d.error) { showToast('Error: ' + d.error, 'danger'); return; }
       channelModal.hide();
-      location.reload();
+      showToast(id ? 'Channel updated' : 'Channel created', 'success');
+      setTimeout(() => location.reload(), 600);
     })
-    .catch(e => alert('Network error: ' + e));
+    .catch(() => showToast('Network error', 'danger'));
 }
 
 function startChannel(id) {
   fetch(`/api/channels/${id}/start`, {method:'POST'})
-    .then(() => location.reload());
+    .then(() => { showToast('Channel started', 'success'); setTimeout(() => location.reload(), 600); });
 }
+
 function stopChannel(id) {
   fetch(`/api/channels/${id}/stop`, {method:'POST'})
-    .then(() => location.reload());
+    .then(() => { showToast('Channel stopped', 'info'); setTimeout(() => location.reload(), 600); });
 }
 
 function deleteChannel(id, name) {
   if (!confirm(`Delete channel "${name}" and all its schedule entries?`)) return;
   fetch(`/api/channels/${id}`, {method:'DELETE'})
-    .then(() => location.reload());
+    .then(() => { showToast(`"${name}" deleted`, 'info'); setTimeout(() => location.reload(), 600); });
 }
