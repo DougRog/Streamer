@@ -105,6 +105,33 @@
 {% endif %}
 
 <!-- ====================================================== -->
+<!--  EPG status panel                                      -->
+<!-- ====================================================== -->
+<div class="card mb-4" id="epg-panel">
+  <div class="card-header">
+    <span><i class="bi bi-broadcast me-2"></i>EPG / Playlist</span>
+    <div class="d-flex gap-2">
+      <a href="/api/epg" class="btn btn-xs btn-ghost" target="_blank">
+        <i class="bi bi-code-slash"></i> XML
+      </a>
+      <a href="/api/epg/m3u" class="btn btn-xs btn-ghost">
+        <i class="bi bi-download"></i> M3U
+      </a>
+      <button class="btn btn-xs btn-primary" onclick="uploadEpgNow()" id="btn-epg-upload">
+        <i class="bi bi-cloud-upload"></i> Upload Now
+      </button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center gap-3 flex-wrap" id="epg-status-row">
+      <span class="text-muted" style="font-size:0.85rem">
+        <i class="bi bi-arrow-repeat me-1"></i>Loading status…
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================== -->
 <!--  SCTE-35 event log                                     -->
 <!-- ====================================================== -->
 {% if recent_scte %}
@@ -218,5 +245,55 @@ function escHtml(s) {
 
 updateStreams();
 setInterval(updateStreams, 5000);
+
+// ---- EPG status ----
+function refreshEpgStatus() {
+  fetch('/api/epg/status')
+    .then(r => r.json())
+    .then(s => {
+      const row = document.getElementById('epg-status-row');
+      if (!row) return;
+      let html = '';
+      if (s.in_progress) {
+        html = `<span class="pill pill-live"><i class="bi bi-arrow-repeat spin"></i> Uploading…</span>`;
+      } else if (s.last_ok === true) {
+        html = `<span class="pill" style="background:rgba(16,185,129,.15);color:var(--success)">
+                  <i class="bi bi-check-circle-fill"></i> OK
+                </span>
+                <span class="text-sub" style="font-size:0.8rem">${escHtml(s.last_msg)}</span>`;
+        if (s.last_files?.length) {
+          html += `<span class="text-muted" style="font-size:0.75rem">${s.last_files.map(f=>escHtml(f)).join(' · ')}</span>`;
+        }
+      } else if (s.last_ok === false) {
+        html = `<span class="pill" style="background:rgba(239,68,68,.15);color:var(--danger)">
+                  <i class="bi bi-x-circle-fill"></i> Failed
+                </span>
+                <span class="text-sub" style="font-size:0.8rem">${escHtml(s.last_msg)}</span>`;
+      } else {
+        html = `<span class="text-muted" style="font-size:0.85rem">No upload attempted — configure SFTP in <a href="/settings" style="color:var(--accent)">Settings</a>.</span>`;
+      }
+      row.innerHTML = html;
+    });
+}
+
+function uploadEpgNow() {
+  const btn = document.getElementById('btn-epg-upload');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Uploading…';
+  fetch('/api/epg/upload', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.message || 'Upload queued', 'info', 4000);
+      setTimeout(() => { refreshEpgStatus(); btn.disabled=false;
+        btn.innerHTML='<i class="bi bi-cloud-upload"></i> Upload Now'; }, 3000);
+    });
+}
+
+refreshEpgStatus();
+setInterval(refreshEpgStatus, 30000);
 </script>
+<style>
+.spin { animation: spin .8s linear infinite; display:inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
 {% endblock %}

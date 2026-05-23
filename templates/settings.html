@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block title %}Settings – Streamer MCR{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub mb-0">SFTP upload, EPG configuration, and playout defaults</p>
+  </div>
+  <button class="btn btn-primary" onclick="saveSettings()">
+    <i class="bi bi-floppy"></i> Save Changes
+  </button>
+</div>
+
+<div class="row g-4">
+
+  <!-- ================================================ -->
+  <!--  SFTP                                            -->
+  <!-- ================================================ -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <span><i class="bi bi-hdd-network me-2"></i>SFTP Upload</span>
+        <button class="btn btn-xs btn-ghost" onclick="testSftp()" id="btn-test">
+          <i class="bi bi-plug"></i> Test Connection
+        </button>
+      </div>
+      <div class="card-body">
+
+        <div class="mb-3 row g-2">
+          <div class="col-8">
+            <label class="form-label text-sub">Host</label>
+            <input type="text" class="form-control" id="sftp-host"
+                   placeholder="192.168.1.1"
+                   value="{{ settings.get('sftp.host','') }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label text-sub">Port</label>
+            <input type="number" class="form-control" id="sftp-port"
+                   value="{{ settings.get('sftp.port','22') }}">
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-sub">Username</label>
+          <input type="text" class="form-control" id="sftp-username"
+                 autocomplete="username"
+                 value="{{ settings.get('sftp.username','') }}">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-sub">Password</label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="sftp-password"
+                   autocomplete="current-password"
+                   placeholder="Leave blank to keep existing">
+            <button class="btn btn-ghost" type="button" onclick="togglePwd()">
+              <i class="bi bi-eye" id="pwd-eye"></i>
+            </button>
+          </div>
+          <div class="form-text text-muted">Leave blank to keep the existing password.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-sub">Remote Path</label>
+          <input type="text" class="form-control" id="sftp-path"
+                 placeholder="/sites/example.com/files/streaming"
+                 value="{{ settings.get('sftp.path','/') }}">
+          <div class="form-text text-muted">Directory where epg.xml and playlist.m3u will be written.</div>
+        </div>
+
+        <!-- Test result -->
+        <div id="test-result" class="mt-2" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================ -->
+  <!--  EPG                                             -->
+  <!-- ================================================ -->
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <span><i class="bi bi-broadcast me-2"></i>EPG / Playlist</span>
+        <div class="d-flex gap-2">
+          <a href="/api/epg" target="_blank" class="btn btn-xs btn-ghost">
+            <i class="bi bi-code-slash"></i> Preview XML
+          </a>
+          <a href="/api/epg/m3u" class="btn btn-xs btn-ghost">
+            <i class="bi bi-download"></i> Download M3U
+          </a>
+          <button class="btn btn-xs btn-primary" onclick="uploadNow()" id="btn-upload">
+            <i class="bi bi-cloud-upload"></i> Upload Now
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+
+        <div class="mb-3">
+          <label class="form-label text-sub">Source / Station Name</label>
+          <input type="text" class="form-control" id="epg-source"
+                 placeholder="Streamer MCR"
+                 value="{{ settings.get('epg.source_name','') }}">
+          <div class="form-text text-muted">Appears in XMLTV and M3U as the provider name.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-sub">Public EPG URL</label>
+          <input type="url" class="form-control" id="epg-url"
+                 placeholder="https://example.com/files/streaming/epg.xml"
+                 value="{{ settings.get('epg.public_url','') }}">
+          <div class="form-text text-muted">Linked in the M3U <code>x-tvg-url</code> attribute.</div>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label text-sub">EPG Window (days)</label>
+            <input type="number" class="form-control" id="epg-days" min="1" max="30"
+                   value="{{ settings.get('epg.window_days','7') }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label text-sub">Auto-upload Interval</label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="epg-interval" min="0"
+                     value="{{ settings.get('epg.interval_minutes','30') }}">
+              <span class="input-group-text">min</span>
+            </div>
+            <div class="form-text text-muted">0 = disabled</div>
+          </div>
+        </div>
+
+        <!-- Upload status -->
+        <div class="rounded-3 p-3" style="background:var(--bg-base);border:1px solid var(--border)">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <span class="fw-600" style="font-size:0.8rem;color:var(--text-sub)">LAST UPLOAD</span>
+          </div>
+          {% if epg_status.last_time %}
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              {% if epg_status.last_ok %}
+                <span class="pill" style="background:rgba(16,185,129,.15);color:var(--success)">
+                  <i class="bi bi-check-circle-fill"></i> OK
+                </span>
+              {% else %}
+                <span class="pill" style="background:rgba(239,68,68,.15);color:var(--danger)">
+                  <i class="bi bi-x-circle-fill"></i> Failed
+                </span>
+              {% endif %}
+              <span class="text-sub" style="font-size:0.82rem">{{ epg_status.last_msg }}</span>
+            </div>
+            {% if epg_status.last_files %}
+            <div class="mt-1">
+              {% for f in epg_status.last_files %}
+                <code style="font-size:0.75rem;color:var(--text-muted)">{{ f }}</code>{% if not loop.last %} · {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+          {% else %}
+            <span class="text-muted" style="font-size:0.83rem">No upload attempted in this session.</span>
+          {% endif %}
+          <div id="upload-result" class="mt-2" style="display:none"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div><!-- /row -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePwd() {
+  const inp = document.getElementById('sftp-password');
+  const eye = document.getElementById('pwd-eye');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    eye.className = 'bi bi-eye-slash';
+  } else {
+    inp.type = 'password';
+    eye.className = 'bi bi-eye';
+  }
+}
+
+function gatherSettings() {
+  const d = {
+    'sftp.host':            document.getElementById('sftp-host').value.trim(),
+    'sftp.port':            document.getElementById('sftp-port').value.trim(),
+    'sftp.username':        document.getElementById('sftp-username').value.trim(),
+    'sftp.path':            document.getElementById('sftp-path').value.trim(),
+    'epg.source_name':      document.getElementById('epg-source').value.trim(),
+    'epg.public_url':       document.getElementById('epg-url').value.trim(),
+    'epg.window_days':      document.getElementById('epg-days').value.trim(),
+    'epg.interval_minutes': document.getElementById('epg-interval').value.trim(),
+  };
+  const pwd = document.getElementById('sftp-password').value;
+  if (pwd) d['sftp.password'] = pwd;
+  return d;
+}
+
+function saveSettings() {
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(gatherSettings()),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) showToast('Settings saved', 'success');
+    else showToast('Save failed: ' + (d.error || '?'), 'danger');
+  });
+}
+
+function testSftp() {
+  const btn = document.getElementById('btn-test');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Testing…';
+
+  // Save first so we test with current form values
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(gatherSettings()),
+  })
+  .then(() => fetch('/api/sftp/test', {method: 'POST'}))
+  .then(r => r.json())
+  .then(d => {
+    const el = document.getElementById('test-result');
+    el.style.display = 'block';
+    if (d.ok) {
+      el.innerHTML = `<div class="alert alert-success py-2 mb-0">
+        <i class="bi bi-check-circle-fill me-2"></i>${escHtml(d.message)}</div>`;
+    } else {
+      el.innerHTML = `<div class="alert alert-danger py-2 mb-0">
+        <i class="bi bi-x-circle-fill me-2"></i>${escHtml(d.message)}</div>`;
+    }
+  })
+  .finally(() => {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-plug"></i> Test Connection';
+  });
+}
+
+function uploadNow() {
+  const btn = document.getElementById('btn-upload');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Uploading…';
+
+  // Save settings first
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(gatherSettings()),
+  })
+  .then(() => fetch('/api/epg/upload', {method: 'POST'}))
+  .then(r => r.json())
+  .then(d => {
+    showToast(d.message || 'Upload queued', 'info', 4000);
+    // Poll status after a few seconds
+    setTimeout(checkUploadDone, 3000);
+  });
+}
+
+function checkUploadDone() {
+  fetch('/api/epg/status')
+    .then(r => r.json())
+    .then(s => {
+      const btn = document.getElementById('btn-upload');
+      const el  = document.getElementById('upload-result');
+      if (s.in_progress) {
+        setTimeout(checkUploadDone, 2000);
+        return;
+      }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Upload Now';
+      el.style.display = 'block';
+      if (s.last_ok) {
+        el.innerHTML = `<div class="alert alert-success py-2 mb-0">
+          <i class="bi bi-check-circle-fill me-2"></i>${escHtml(s.last_msg)}</div>`;
+        showToast('EPG upload successful', 'success', 5000);
+      } else {
+        el.innerHTML = `<div class="alert alert-danger py-2 mb-0">
+          <i class="bi bi-x-circle-fill me-2"></i>${escHtml(s.last_msg)}</div>`;
+        showToast('EPG upload failed — check settings', 'danger', 6000);
+      }
+    });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+<style>
+.spin { animation: spin .8s linear infinite; display:inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}

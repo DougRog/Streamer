@@ -7,17 +7,41 @@ from flask import Flask, render_template, request, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
 
 import config
-from models import db, Channel, ScheduleEntry, MediaAsset, SCTEEvent
+from models import db, Channel, ScheduleEntry, MediaAsset, SCTEEvent, AppSetting
 from stream_manager import stream_manager
 from media_pool import scan_pool, scan_status
 from dektec_handler import status as dektec_status
 from scheduler import init_scheduler, expand_occurrences, get_current_item, get_next_item
+import sftp_uploader
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s: %(message)s',
 )
 logger = logging.getLogger(__name__)
+
+
+def _seed_settings(app):
+    """Pre-populate AppSetting from config.py defaults — only if not already set."""
+    defaults = {
+        'sftp.host':            config.SFTP_HOST,
+        'sftp.port':            str(config.SFTP_PORT),
+        'sftp.username':        config.SFTP_USERNAME,
+        'sftp.password':        config.SFTP_PASSWORD,
+        'sftp.path':            config.SFTP_PATH,
+        'epg.window_days':      str(config.EPG_WINDOW_DAYS),
+        'epg.interval_minutes': str(config.EPG_INTERVAL_MINUTES),
+        'epg.source_name':      config.EPG_SOURCE_NAME,
+        'epg.public_url':       config.EPG_PUBLIC_URL,
+    }
+    with app.app_context():
+        changed = False
+        for key, value in defaults.items():
+            if value and AppSetting.query.get(key) is None:
+                db.session.add(AppSetting(key=key, value=value))
+                changed = True
+        if changed:
+            db.session.commit()
 
 
 def create_app():
@@ -33,6 +57,7 @@ def create_app():
         db.create_all()
         os.makedirs(config.MEDIA_POOL_PATH, exist_ok=True)
         os.makedirs(config.RECORDING_PATH, exist_ok=True)
+        _seed_settings(app)
 
     init_scheduler(app, stream_manager)
 
@@ -420,6 +445,70 @@ def create_app():
 
         return jsonify({'ok': True, 'count': len(updated), 'updated': updated,
                         'rrule': rrule_str})
+
+    # ------------------------------------------------------------------ #
+    #  Settings page + API                                                 #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/settings')
+    def settings():
+        s = AppSetting.all_dict()
+        return render_template('settings.html', settings=s,
+                               epg_status=sftp_uploader.get_status())
+
+    @app.route('/api/settings', methods=['GET'])
+    def api_get_settings():
+        d = AppSetting.all_dict()
+        if d.get('sftp.password'):
+            d['sftp.password'] = '••••••'
+        return jsonify(d)
+
+    @app.route('/api/settings', methods=['POST'])
+    def api_update_settings():
+        data = request.get_json(force=True)
+        allowed = {
+            'sftp.host', 'sftp.port', 'sftp.username', 'sftp.password',
+            'sftp.path', 'epg.window_days', 'epg.interval_minutes',
+            'epg.source_name', 'epg.public_url',
+        }
+        AppSetting.bulk_set({k: v for k, v in data.items() if k in allowed})
+        return jsonify({'ok': True})
+
+    # ------------------------------------------------------------------ #
+    #  EPG API                                                             #
+    # ------------------------------------------------------------------ #
+
+    @app.route('/api/epg', methods=['GET'])
+    def api_epg_xml():
+        from epg_generator import generate_xmltv
+        days = request.args.get('days', 7, type=int)
+        xml = generate_xmltv(app, days=days)
+        return xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+
+    @app.route('/api/epg/m3u', methods=['GET'])
+    def api_epg_m3u():
+        from epg_generator import generate_m3u
+        m3u = generate_m3u(app)
+        return m3u, 200, {
+            'Content-Type': 'application/x-mpegurl; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="playlist.m3u"',
+        }
+
+    @app.route('/api/epg/upload', methods=['POST'])
+    def api_epg_upload():
+        import threading
+        threading.Thread(target=sftp_uploader.upload_epg, args=(app,),
+                         daemon=True).start()
+        return jsonify({'ok': True, 'message': 'Upload started in background'})
+
+    @app.route('/api/epg/status', methods=['GET'])
+    def api_epg_status():
+        return jsonify(sftp_uploader.get_status())
+
+    @app.route('/api/sftp/test', methods=['POST'])
+    def api_sftp_test():
+        ok, msg = sftp_uploader.test_connection(app)
+        return jsonify({'ok': ok, 'message': msg})
 
     # ------------------------------------------------------------------ #
     #  SCTE events API                                                     #

@@ -161,6 +161,47 @@ class MediaAsset(db.Model):
         }
 
 
+class AppSetting(db.Model):
+    """Key/value store for runtime configuration (SFTP, EPG, etc.)."""
+    __tablename__ = 'app_settings'
+
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text, nullable=False, default='')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @classmethod
+    def get(cls, key, default=''):
+        row = cls.query.get(key)
+        return row.value if row else default
+
+    @classmethod
+    def set(cls, key, value):
+        row = cls.query.get(key)
+        if row:
+            row.value = str(value) if value is not None else ''
+            row.updated_at = datetime.utcnow()
+        else:
+            db.session.add(cls(key=key, value=str(value) if value is not None else '',
+                               updated_at=datetime.utcnow()))
+        db.session.commit()
+
+    @classmethod
+    def bulk_set(cls, mapping):
+        for k, v in mapping.items():
+            row = cls.query.get(k)
+            if row:
+                row.value = str(v) if v is not None else ''
+                row.updated_at = datetime.utcnow()
+            else:
+                db.session.add(cls(key=k, value=str(v) if v is not None else '',
+                                   updated_at=datetime.utcnow()))
+        db.session.commit()
+
+    @classmethod
+    def all_dict(cls):
+        return {r.key: r.value for r in cls.query.all()}
+
+
 class SCTEEvent(db.Model):
     __tablename__ = 'scte_events'
 

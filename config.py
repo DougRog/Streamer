@@ -43,3 +43,16 @@ SCTE35_LOG_EVENTS = True
 # Media scanning
 MEDIA_EXTENSIONS = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
 SCAN_WORKER_THREADS = 4
+
+# EPG / SFTP — env vars take priority; also configurable via Settings UI.
+# These become the seed values for the DB on first run.
+SFTP_HOST     = os.environ.get('SFTP_HOST', '')
+SFTP_PORT     = int(os.environ.get('SFTP_PORT', '22'))
+SFTP_USERNAME = os.environ.get('SFTP_USERNAME', '')
+SFTP_PASSWORD = os.environ.get('SFTP_PASSWORD', '')
+SFTP_PATH     = os.environ.get('SFTP_PATH', '/')
+
+EPG_WINDOW_DAYS      = int(os.environ.get('EPG_WINDOW_DAYS', '7'))
+EPG_INTERVAL_MINUTES = int(os.environ.get('EPG_INTERVAL_MINUTES', '30'))
+EPG_SOURCE_NAME      = os.environ.get('EPG_SOURCE_NAME', 'Streamer MCR')
+EPG_PUBLIC_URL       = os.environ.get('EPG_PUBLIC_URL', '')

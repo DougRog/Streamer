@@ -143,8 +143,8 @@ class PlayoutScheduler:
         self._sm = stream_mgr
         self._stop_event = threading.Event()
         self._thread = None
-        # channel_id → (entry_id, occ_start) of what we last commanded
         self._playing: dict = {}
+        self._last_epg_upload = None   # datetime of last successful EPG push
 
     def start(self):
         self._thread = threading.Thread(
@@ -160,8 +160,31 @@ class PlayoutScheduler:
         while not self._stop_event.wait(SCHEDULER_INTERVAL):
             try:
                 self._tick()
+                self._epg_tick()
             except Exception as e:
                 logger.exception(f'Scheduler tick error: {e}')
+
+    def _epg_tick(self):
+        """Upload EPG if the configured interval has elapsed."""
+        try:
+            with self._app.app_context():
+                from models import AppSetting
+                interval_min = int(AppSetting.get('epg.interval_minutes', '30') or 0)
+        except Exception:
+            return
+
+        if interval_min <= 0:
+            return  # auto-upload disabled
+
+        now = datetime.utcnow()
+        if (self._last_epg_upload is None or
+                (now - self._last_epg_upload).total_seconds() >= interval_min * 60):
+            logger.info('EPG upload interval elapsed — uploading…')
+            from sftp_uploader import upload_epg
+            ok, msg = upload_epg(self._app)
+            self._last_epg_upload = now
+            if not ok:
+                logger.warning(f'Auto EPG upload: {msg}')
 
     def _tick(self):
         now = datetime.utcnow()
