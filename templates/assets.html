@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Media Pool – Streamer MCR{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h5 class="mb-0"><i class="bi bi-film me-2"></i>Media Pool</h5>
+    <small class="text-muted">{{ pool_path }}</small>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <span id="scan-badge" class="badge {% if scan.in_progress %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+      {% if scan.in_progress %}
+        Scanning {{ scan.done }}/{{ scan.total }}…
+      {% else %}
+        {{ assets | length }} assets
+      {% endif %}
+    </span>
+    <button class="btn btn-sm btn-outline-primary" onclick="triggerScan()" id="btn-scan">
+      <i class="bi bi-arrow-clockwise me-1"></i>Scan Pool
+    </button>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="mb-3 row g-2">
+  <div class="col-md-4">
+    <input class="form-control bg-dark text-light border-secondary form-control-sm"
+           id="filter-name" placeholder="Filter by filename…" oninput="filterTable()">
+  </div>
+  <div class="col-auto">
+    <div class="form-check form-switch mt-1">
+      <input class="form-check-input" type="checkbox" id="filter-scte"
+             onchange="filterTable()">
+      <label class="form-check-label small text-secondary" for="filter-scte">SCTE-35 only</label>
+    </div>
+  </div>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-dark table-hover table-sm table-bordered border-secondary align-middle"
+         id="asset-table">
+    <thead class="table-secondary text-dark">
+      <tr>
+        <th>Filename</th>
+        <th>Duration</th>
+        <th>Resolution</th>
+        <th>FPS</th>
+        <th>Codecs</th>
+        <th>Size</th>
+        <th>SCTE-35</th>
+        <th>Last Scanned</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in assets %}
+      <tr data-filename="{{ a.filename | lower }}"
+          data-scte="{{ '1' if a.has_scte else '0' }}">
+        <td class="font-monospace small">
+          <i class="bi bi-file-earmark-play text-secondary me-1"></i>
+          {{ a.filename }}
+          <br><span class="text-muted" style="font-size:0.7rem;">{{ a.path }}</span>
+        </td>
+        <td class="font-monospace">{{ a.formatted_duration() }}</td>
+        <td>
+          {% if a.video_width and a.video_height %}
+            {{ a.video_width }}×{{ a.video_height }}
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ a.video_fps or '—' }}</td>
+        <td class="small">
+          <span class="badge bg-secondary me-1">{{ a.video_codec or '?' }}</span>
+          <span class="badge bg-secondary">{{ a.audio_codec or '?' }}</span>
+        </td>
+        <td class="small">{{ a.formatted_size() }}</td>
+        <td class="text-center">
+          {% if a.has_scte %}
+            <span class="badge bg-warning text-dark">
+              <i class="bi bi-lightning-charge-fill me-1"></i>SCTE-35
+            </span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td class="small text-muted">
+          {{ a.last_scanned.strftime('%Y-%m-%d %H:%M') if a.last_scanned else '—' }}
+        </td>
+        <td>
+          <button class="btn btn-xs btn-outline-secondary"
+                  onclick="copyPath('{{ a.path }}')">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-muted py-5">
+        No assets found. Click <strong>Scan Pool</strong> to discover files in {{ pool_path }}.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterTable() {
+  const name = document.getElementById('filter-name').value.toLowerCase();
+  const scteOnly = document.getElementById('filter-scte').checked;
+  document.querySelectorAll('#asset-table tbody tr[data-filename]').forEach(row => {
+    const matchName = !name || row.dataset.filename.includes(name);
+    const matchScte = !scteOnly || row.dataset.scte === '1';
+    row.style.display = (matchName && matchScte) ? '' : 'none';
+  });
+}
+
+function triggerScan() {
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Scanning…';
+  fetch('/api/assets/scan', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      pollScan();
+    });
+}
+
+function pollScan() {
+  fetch('/api/assets/scan/status')
+    .then(r => r.json())
+    .then(s => {
+      const badge = document.getElementById('scan-badge');
+      if (s.in_progress) {
+        badge.className = 'badge bg-warning text-dark';
+        badge.textContent = `Scanning ${s.done}/${s.total} — ${s.current}`;
+        setTimeout(pollScan, 1000);
+      } else {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'Scan complete — reloading…';
+        setTimeout(() => location.reload(), 1200);
+      }
+    });
+}
+
+function copyPath(path) {
+  navigator.clipboard.writeText(path).then(() => {
+    // brief visual feedback
+  });
+}
+
+{% if scan.in_progress %}
+  document.getElementById('btn-scan').disabled = true;
+  pollScan();
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Streamer MCR{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- Dektec status strip -->
+  <div class="col-12">
+    <div class="card bg-black border-secondary">
+      <div class="card-body py-2 d-flex align-items-center gap-3">
+        <span class="fw-semibold text-secondary small">DEKTEC SDI</span>
+        {% if dektec.detected %}
+          <span class="badge bg-success">
+            <i class="bi bi-check-circle me-1"></i>Detected — {{ dektec.format }}:{{ dektec.uri }}
+          </span>
+        {% else %}
+          <span class="badge bg-danger">
+            <i class="bi bi-x-circle me-1"></i>Not detected
+          </span>
+        {% endif %}
+        <span class="text-muted small">Config: {{ dektec.config_uri }}</span>
+
+        <!-- Quick record controls -->
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-sm btn-outline-danger" id="btn-rec-start"
+                  onclick="startRecording()">
+            <i class="bi bi-record-circle me-1"></i>Record Live
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-rec-stop"
+                  onclick="stopRecording()" disabled>
+            <i class="bi bi-stop-circle me-1"></i>Stop
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Channel cards -->
+  {% for ch in channels %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card bg-dark border-secondary channel-card" id="chcard-{{ ch.id }}"
+         style="border-left: 4px solid {{ ch.color }} !important;">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <h6 class="mb-0 fw-bold">{{ ch.name }}</h6>
+            <small class="text-muted">
+              <i class="bi bi-broadcast me-1"></i>{{ ch.multicast_url }}
+            </small>
+          </div>
+          <div class="d-flex gap-1">
+            {% if ch.is_active %}
+              <span class="badge bg-success on-air-badge">ON AIR</span>
+            {% else %}
+              <span class="badge bg-secondary">IDLE</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Now playing -->
+        <div class="now-playing mb-2 p-2 rounded bg-black small" id="np-{{ ch.id }}">
+          <i class="bi bi-hourglass-split text-secondary me-1"></i>
+          <span class="text-muted">Checking…</span>
+        </div>
+
+        <!-- FFmpeg log tail -->
+        <div class="log-tail text-muted small font-monospace bg-black p-1 rounded"
+             id="log-{{ ch.id }}" style="height:60px;overflow:hidden;">
+        </div>
+
+        <div class="mt-2 d-flex gap-2">
+          {% if ch.is_active %}
+            <button class="btn btn-sm btn-outline-warning"
+                    onclick="stopChannel({{ ch.id }})">
+              <i class="bi bi-stop-fill"></i> Stop
+            </button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-success"
+                    onclick="startChannel({{ ch.id }})">
+              <i class="bi bi-play-fill"></i> Start
+            </button>
+          {% endif %}
+          <a href="/calendar?channel={{ ch.id }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-calendar3"></i> Schedule
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12 text-center text-muted py-5">
+    <i class="bi bi-collection-play display-4"></i>
+    <p class="mt-2">No channels yet. <a href="/channels">Create one →</a></p>
+  </div>
+  {% endfor %}
+
+  <!-- SCTE-35 event log -->
+  {% if recent_scte %}
+  <div class="col-12">
+    <div class="card bg-black border-secondary">
+      <div class="card-header border-secondary d-flex justify-content-between">
+        <span><i class="bi bi-lightning-charge-fill text-warning me-1"></i>Recent SCTE-35 Events</span>
+        <a href="/api/scte" class="text-secondary small">JSON API</a>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-dark table-sm table-hover mb-0">
+          <thead class="table-secondary text-dark">
+            <tr>
+              <th>Time (UTC)</th><th>Channel</th><th>Type</th>
+              <th>Event ID</th><th>Out-of-Network</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ev in recent_scte %}
+            <tr>
+              <td class="font-monospace small">{{ ev.detected_at.strftime('%H:%M:%S') }}</td>
+              <td>{{ ev.channel_id }}</td>
+              <td><span class="badge bg-warning text-dark">{{ ev.event_type }}</span></td>
+              <td>{{ ev.event_id or '—' }}</td>
+              <td>
+                {% if ev.out_of_network %}
+                  <span class="text-danger fw-bold">YES</span>
+                {% else %}
+                  <span class="text-muted">no</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const channelIds = {{ channels | map(attribute='id') | list | tojson }};
+
+function startChannel(id) {
+  fetch(`/api/channels/${id}/start`, {method:'POST'})
+    .then(r => r.json())
+    .then(() => location.reload());
+}
+function stopChannel(id) {
+  fetch(`/api/channels/${id}/stop`, {method:'POST'})
+    .then(r => r.json())
+    .then(() => location.reload());
+}
+
+let recId = null;
+function startRecording() {
+  fetch('/api/recording/start', {
+    method:'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({live_source:'dektec:0:0'})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      recId = d.path;
+      document.getElementById('btn-rec-start').disabled = true;
+      document.getElementById('btn-rec-stop').disabled = false;
+      alert('Recording started → ' + d.path);
+    } else {
+      alert('Error: ' + d.error);
+    }
+  });
+}
+function stopRecording() {
+  fetch('/api/recording/stop', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({})})
+    .then(r => r.json())
+    .then(() => {
+      document.getElementById('btn-rec-start').disabled = false;
+      document.getElementById('btn-rec-stop').disabled = true;
+    });
+}
+
+function updateStreams() {
+  channelIds.forEach(id => {
+    fetch(`/api/channels/${id}/stream`)
+      .then(r => r.json())
+      .then(info => {
+        const npEl = document.getElementById(`np-${id}`);
+        const logEl = document.getElementById(`log-${id}`);
+        if (info.running) {
+          npEl.innerHTML =
+            `<i class="bi bi-play-fill text-success me-1"></i>
+             <span class="text-success">${info.description}</span>
+             <span class="text-muted ms-2">PID ${info.pid}</span>`;
+          if (info.log && info.log.length)
+            logEl.textContent = info.log.slice(-3).join('\n');
+        } else {
+          npEl.innerHTML =
+            `<i class="bi bi-dash-circle text-secondary me-1"></i>
+             <span class="text-muted">No content / slate</span>`;
+        }
+      });
+  });
+}
+
+updateStreams();
+setInterval(updateStreams, 5000);
+</script>
+{% endblock %}
