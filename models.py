@@ -15,6 +15,8 @@ class Channel(db.Model):
     video_bitrate = db.Column(db.String(10), default='6M')
     is_active = db.Column(db.Boolean, default=False)
     slate_enabled = db.Column(db.Boolean, default=True)
+    slate_type = db.Column(db.String(20), default='color')   # 'color' | 'file'
+    slate_asset_path = db.Column(db.String(500))
     color = db.Column(db.String(20), default='#3788d8')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -35,6 +37,8 @@ class Channel(db.Model):
             'video_bitrate': self.video_bitrate,
             'is_active': self.is_active,
             'slate_enabled': self.slate_enabled,
+            'slate_type': self.slate_type or 'color',
+            'slate_asset_path': self.slate_asset_path or '',
             'color': self.color,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,

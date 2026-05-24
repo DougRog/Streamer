@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
       center: 'title',
       right:  'dayGridMonth,timeGridWeek,timeGridDay,listWeek',
     },
-    timeZone:      'UTC',
+    timeZone:      'America/New_York',
     height:        'auto',
     nowIndicator:  true,
     editable:      true,
@@ -240,7 +240,7 @@ function saveEvent() {
     entry_type:   entryType,
     asset_path:   document.getElementById('f-asset-path').value.trim() || null,
     live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
-    start_time:   new Date(startVal + ':00Z').toISOString(),
+    start_time:   easternToISO(startVal),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
                     ? 86400   // scheduler cuts the loop when the next event starts
                     : parseInt(document.getElementById('f-duration').value),
@@ -361,8 +361,11 @@ function applyDropAll(e, entryId) {
 function openRepeatDayModal() {
   // Default date to the currently viewed week's Monday (or today)
   const d = calendar.getDate();
-  const monday = new Date(d);
-  monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  // calendar.getDate() returns a JS Date; get the Eastern day-of-week via Intl
+  const etDayStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(d);
+  const etDow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(etDayStr);
+  const daysToMon = (etDow + 6) % 7;
+  const monday = new Date(d.getTime() - daysToMon * 86400000);
   document.getElementById('rd-date').value = toDateString(monday);
   document.getElementById('rd-until').value = '';
   document.getElementById('rd-preview-list').innerHTML =
@@ -377,8 +380,8 @@ function loadRepeatPreview() {
   const date  = document.getElementById('rd-date').value;
   if (!chId || !date) return;
 
-  const dayStart = date + 'T00:00:00';
-  const dayEnd   = date + 'T23:59:59';
+  const dayStart = easternToISO(date + 'T00:00');
+  const dayEnd   = easternToISO(date + 'T23:59');
 
   fetch(`/api/schedule?start=${dayStart}&end=${dayEnd}&channel_id=${chId}`)
     .then(r => r.json())
@@ -607,15 +610,49 @@ function updateDurationHint() {
   if (hint) hint.textContent = parts.join(' ');
 }
 
-function toInputValue(dt) {
-  const pad = n => String(n).padStart(2,'0');
-  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())}`
-       + `T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}`;
+// ------------------------------------------------------------------ //
+//  Eastern timezone helpers                                          //
+// ------------------------------------------------------------------ //
+const _ET_FMT_FULL = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const _ET_FMT_DATE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
+function _etParts(dt, fmt) {
+  const p = {};
+  fmt.formatToParts(dt).forEach(({type, value}) => { p[type] = value; });
+  return p;
 }
 
+/** Format a JS Date as an Eastern "YYYY-MM-DDTHH:MM" string for datetime-local inputs. */
+function toInputValue(dt) {
+  const p = _etParts(dt, _ET_FMT_FULL);
+  const hh = p.hour === '24' ? '00' : p.hour;
+  return `${p.year}-${p.month}-${p.day}T${hh}:${p.minute}`;
+}
+
+/** Format a JS Date as an Eastern "YYYY-MM-DD" string for date inputs. */
 function toDateString(dt) {
-  const pad = n => String(n).padStart(2,'0');
-  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())}`;
+  const p = _etParts(dt, _ET_FMT_DATE);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
+ * Convert an Eastern datetime-local string ("YYYY-MM-DDTHH:MM") to a UTC ISO string.
+ * Uses the Intl API to find the correct UTC offset for that ET moment, handling DST.
+ */
+function easternToISO(dtStr) {
+  const tentative = new Date(dtStr + ':00Z');   // parse as UTC tentatively
+  const p = _etParts(tentative, _ET_FMT_FULL);  // what ET time is that UTC?
+  const hh = p.hour === '24' ? '00' : p.hour;
+  const etAsUtc = new Date(`${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:00Z`);
+  const offsetMs = tentative - etAsUtc;          // ET is behind UTC → positive
+  return new Date(tentative.getTime() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function escHtml(s) {

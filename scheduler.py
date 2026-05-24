@@ -4,6 +4,8 @@ SCHEDULER_INTERVAL seconds and drives each active channel to the
 correct FFmpeg process based on the current schedule.
 
 Recurring events use iCalendar RRULE strings (parsed by python-dateutil).
+RRULE day-of-week (BYDAY etc.) is evaluated in SCHEDULE_TIMEZONE (Eastern)
+so that "every Monday" means Monday in the broadcast timezone, not UTC.
 Per-day overrides shadow the recurring entry for that specific date.
 """
 import logging
@@ -11,10 +13,33 @@ import threading
 from datetime import datetime, timedelta, date
 
 from dateutil import rrule as rrulelib
+from dateutil import tz as tzlib
 
-from config import SCHEDULER_INTERVAL, PRETRANSITION_SECONDS
+from config import SCHEDULER_INTERVAL, PRETRANSITION_SECONDS, SCHEDULE_TIMEZONE
 
 logger = logging.getLogger(__name__)
+
+_UTC = tzlib.tzutc()
+_SCHEDULE_TZ = tzlib.gettz(SCHEDULE_TIMEZONE)
+
+
+# ------------------------------------------------------------------ #
+#  Timezone helpers                                                    #
+# ------------------------------------------------------------------ #
+
+def _to_schedule_tz(dt_utc_naive):
+    """Convert a UTC-naive datetime to a schedule-tz-naive datetime."""
+    return dt_utc_naive.replace(tzinfo=_UTC).astimezone(_SCHEDULE_TZ).replace(tzinfo=None)
+
+
+def _to_utc(dt_sched_naive):
+    """Convert a schedule-tz-naive datetime back to UTC-naive."""
+    return dt_sched_naive.replace(tzinfo=_SCHEDULE_TZ).astimezone(_UTC).replace(tzinfo=None)
+
+
+def _sched_date(dt_utc_naive):
+    """Return the schedule-timezone date for a UTC-naive datetime."""
+    return dt_utc_naive.replace(tzinfo=_UTC).astimezone(_SCHEDULE_TZ).date()
 
 
 # ------------------------------------------------------------------ #
@@ -24,44 +49,57 @@ logger = logging.getLogger(__name__)
 def expand_occurrences(entry, window_start, window_end):
     """
     Return list of (occ_start, occ_end) for 'entry' that overlap
-    [window_start, window_end].
+    [window_start, window_end].  Both window and return values are UTC-naive.
+
+    RRULE expansion is done in SCHEDULE_TIMEZONE so that BYDAY=MO means
+    Monday in the broadcast timezone, not UTC.
+    Override entries shadow their parent for the specific date.
     """
+    dur = timedelta(seconds=entry.duration)
+
     if not entry.rrule:
-        occ_end = entry.start_time + timedelta(seconds=entry.duration)
+        occ_end = entry.start_time + dur
         if entry.start_time < window_end and occ_end > window_start:
             return [(entry.start_time, occ_end)]
         return []
 
-    dtstart = entry.start_time
-    # Strip accidental "RRULE:" prefix that users sometimes type
+    # Express DTSTART in schedule timezone (naive) for correct BYDAY evaluation
+    dtstart_sched = _to_schedule_tz(entry.start_time)
+
     rrule_str = entry.rrule.strip()
     if rrule_str.upper().startswith('RRULE:'):
         rrule_str = rrule_str[6:].strip()
 
     try:
         rule = rrulelib.rrulestr(
-            f'DTSTART:{dtstart.strftime("%Y%m%dT%H%M%S")}\nRRULE:{rrule_str}'
+            f'DTSTART:{dtstart_sched.strftime("%Y%m%dT%H%M%S")}\nRRULE:{rrule_str}'
         )
     except Exception as e:
         logger.warning(
             f'Bad RRULE on entry {entry.id} ({rrule_str!r}): {e} '
             f'— showing as one-time event. Fix or delete this entry.'
         )
-        # Fall back: treat as a one-time event at its original start_time
-        occ_end = entry.start_time + timedelta(seconds=entry.duration)
+        occ_end = entry.start_time + dur
         if entry.start_time < window_end and occ_end > window_start:
             return [(entry.start_time, occ_end)]
         return []
 
+    # Convert the UTC window to schedule timezone for the query
+    ws_sched = _to_schedule_tz(window_start)
+    we_sched = _to_schedule_tz(window_end)
+
     exdate_set = set(entry.get_exdates())
-    search_from = window_start - timedelta(seconds=entry.duration)
-    raw_occs = rule.between(search_from, window_end, inc=True)
+    search_from = ws_sched - dur
+    raw_occs = rule.between(search_from, we_sched, inc=True)
 
     result = []
-    for occ_start in raw_occs:
-        if occ_start.strftime('%Y-%m-%d') in exdate_set:
+    for occ_sched in raw_occs:
+        # exdates are keyed by schedule-tz date
+        if occ_sched.strftime('%Y-%m-%d') in exdate_set:
             continue
-        occ_end = occ_start + timedelta(seconds=entry.duration)
+        # Convert back to UTC naive
+        occ_start = _to_utc(occ_sched)
+        occ_end   = occ_start + dur
         if occ_start < window_end and occ_end > window_start:
             result.append((occ_start, occ_end))
     return result
@@ -71,12 +109,12 @@ def get_current_item(channel_id, at_time, app):
     """
     Return (entry, occ_start, occ_end) for the item that should be
     on-air on channel_id at at_time, or (None, None, None).
-    Override entries shadow their parent for the specific date.
+    Override entries shadow their parent for the specific schedule-tz date.
+    at_time is UTC-naive.
     """
     with app.app_context():
         from models import ScheduleEntry
 
-        # Only top-level (non-override) entries
         entries = ScheduleEntry.query.filter_by(
             channel_id=channel_id, parent_id=None
         ).all()
@@ -94,10 +132,11 @@ def get_current_item(channel_id, at_time, app):
                 if not (occ_start <= at_time < occ_end):
                     continue
 
-                # Check for a day-level override
+                # Override is keyed by schedule-tz date
+                occ_date_sched = _sched_date(occ_start)
                 override = ScheduleEntry.query.filter_by(
                     parent_id=entry.id,
-                    override_date=occ_start.date(),
+                    override_date=occ_date_sched,
                 ).first()
 
                 if override:
@@ -106,14 +145,11 @@ def get_current_item(channel_id, at_time, app):
                     ov_end = ov_start + timedelta(seconds=override.duration)
                     if ov_start <= at_time < ov_end:
                         candidates.append((override, ov_start, ov_end))
-                    # Even if the override doesn't cover this moment, the
-                    # original recurring slot is displaced — so don't add it.
                 else:
                     candidates.append((entry, occ_start, occ_end))
 
         if not candidates:
             return None, None, None
-        # Most recently started wins; ties broken by creation date
         return max(candidates, key=lambda x: (x[1], x[0].created_at))
 
 
@@ -132,9 +168,10 @@ def get_next_item(channel_id, after_time, app, lookahead_seconds=300):
             occs = expand_occurrences(entry, after_time, window_end)
             for occ_start, occ_end in occs:
                 if occ_start > after_time:
+                    occ_date_sched = _sched_date(occ_start)
                     override = ScheduleEntry.query.filter_by(
                         parent_id=entry.id,
-                        override_date=occ_start.date(),
+                        override_date=occ_date_sched,
                     ).first()
                     eff_entry = override if override else entry
                     candidates.append((eff_entry, occ_start, occ_end))
@@ -187,7 +224,7 @@ class PlayoutScheduler:
             return
 
         if interval_min <= 0:
-            return  # auto-upload disabled
+            return
 
         now = datetime.utcnow()
         if (self._last_epg_upload is None or
@@ -232,14 +269,11 @@ class PlayoutScheduler:
 
         key = (entry.id, occ_start)
         if prev == key:
-            # Correct item already running
             if not self._sm.get_channel_info(channel.id)['running']:
-                # FFmpeg crashed — restart
                 logger.warning(f'[ch{channel.id}] FFmpeg died, restarting "{entry.title}"')
                 self._launch(channel, entry, occ_start)
             return
 
-        # New item or resuming after gap
         logger.info(
             f'[ch{channel.id}] Switch → "{entry.title}" '
             f'({entry.entry_type}) start={occ_start.isoformat()}'

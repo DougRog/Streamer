@@ -328,8 +328,24 @@ class StreamManager:
         return cmd
 
     def _slate_cmd(self, channel):
-        """FFmpeg lavfi color+sine → multicast. Keeps downstream alive."""
-        cmd = [
+        """FFmpeg slate → multicast. Uses a looped file if configured, else black+tone."""
+        slate_type  = getattr(channel, 'slate_type', 'color') or 'color'
+        slate_path  = getattr(channel, 'slate_asset_path', '') or ''
+
+        if slate_type == 'file' and slate_path:
+            return [
+                FFMPEG_PATH, '-hide_banner', '-loglevel', 'error',
+                '-stream_loop', '-1',
+                '-re', '-i', slate_path,
+                '-map', '0:v:0', '-map', '0:a:0',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '500k',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '64k', '-ar', '48000',
+                '-f', 'mpegts', self._multicast_url(channel),
+            ]
+
+        # Default: black frame + 400 Hz tone
+        return [
             FFMPEG_PATH, '-hide_banner', '-loglevel', 'error',
             '-f', 'lavfi',
             '-i', f'color=c=black:s={DEFAULT_VIDEO_WIDTH}x{DEFAULT_VIDEO_HEIGHT}'
@@ -341,7 +357,6 @@ class StreamManager:
             '-c:a', 'aac', '-b:a', '64k', '-ar', '48000',
             '-f', 'mpegts', self._multicast_url(channel),
         ]
-        return cmd
 
 
 # Module-level singleton

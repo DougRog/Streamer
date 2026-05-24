@@ -91,20 +91,28 @@ def upload_epg(app):
     transport = None
     try:
         with app.app_context():
-            from models import AppSetting
+            from models import AppSetting, Channel
             days = int(AppSetting.get('epg.window_days', '7') or 7)
+            channels = Channel.query.order_by(Channel.name).all()
 
         logger.info('EPG generation starting…')
-        xml_content = generate_xmltv(app, days=days)
-        m3u_content = generate_m3u(app)
-        logger.info('EPG generation done — uploading via SFTP…')
+        # Combined files
+        files = [
+            ('epg.xml',      generate_xmltv(app, days=days)),
+            ('playlist.m3u', generate_m3u(app)),
+        ]
+        # Per-channel files
+        for ch in channels:
+            slug = ch.name.lower().replace(' ', '_')
+            files.append((f'ch{ch.id}_{slug}.xml', generate_xmltv(app, days=days, channel_id=ch.id)))
+            files.append((f'ch{ch.id}_{slug}.m3u', generate_m3u(app, channel_id=ch.id)))
 
+        logger.info(f'EPG generation done ({len(files)} files) — uploading via SFTP…')
         transport, sftp = _connect(cfg)
 
         base = cfg['path'].rstrip('/')
         uploaded = []
-        for filename, content in [('epg.xml', xml_content),
-                                   ('playlist.m3u', m3u_content)]:
+        for filename, content in files:
             remote = f'{base}/{filename}'
             with sftp.file(remote, 'wb') as fh:
                 fh.write(content.encode('utf-8'))

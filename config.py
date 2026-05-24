@@ -35,6 +35,7 @@ DEKTEC_FFMPEG_FORMAT = os.environ.get('DEKTEC_FFMPEG_FORMAT', 'dektec')
 SCHEDULER_INTERVAL = 5          # seconds between playout checks
 PRETRANSITION_SECONDS = 3       # seconds before end to begin next item
 SLATE_RESTART_DELAY = 2         # seconds between slate restart on channel with no content
+SCHEDULE_TIMEZONE = os.environ.get('SCHEDULE_TIMEZONE', 'America/New_York')
 
 # SSAI / SCTE-35
 SCTE35_PID = 500

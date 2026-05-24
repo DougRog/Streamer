@@ -1,23 +1,27 @@
 """
 XMLTV EPG and M3U playlist generator.
 
-Generates a 7-day (configurable) rolling EPG window by expanding every
-recurring and one-time ScheduleEntry for each channel, applying overrides,
+Generates a rolling EPG window by expanding every recurring and one-time
+ScheduleEntry for each channel (or a single channel), applying overrides,
 and serialising to XMLTV XML and/or M3U8.
 
+All times in XMLTV output are UTC (+0000). Override lookup uses the
+schedule timezone (Eastern) so day keys match the broadcast day.
+
 Output files (uploaded via sftp_uploader):
-  epg.xml      — XMLTV Electronic Programme Guide
-  playlist.m3u — IPTV playlist pointing at the multicast URLs
+  epg.xml          — all-channel XMLTV
+  ch{id}.xml       — per-channel XMLTV
+  playlist.m3u     — all-channel M3U
+  ch{id}.m3u       — per-channel M3U
 """
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import logging
 
-from scheduler import expand_occurrences
+from scheduler import expand_occurrences, _sched_date
 
 logger = logging.getLogger(__name__)
 
-# XMLTV category heuristics by entry_type
 _CATEGORY_MAP = {
     'file':      'Entertainment',
     'live':      'News',
@@ -25,10 +29,10 @@ _CATEGORY_MAP = {
 }
 
 
-def generate_xmltv(app, days=7):
+def generate_xmltv(app, days=7, channel_id=None):
     """
-    Return XMLTV XML as a unicode string covering the next `days` days.
-    Runs inside the provided Flask app context.
+    Return XMLTV XML as a unicode string.
+    If channel_id is given, only include that channel.
     """
     with app.app_context():
         from models import Channel, ScheduleEntry, AppSetting
@@ -41,26 +45,24 @@ def generate_xmltv(app, days=7):
         root.set('generator-info-name', 'Streamer MCR')
         root.set('source-info-name', source_name)
 
-        channels = Channel.query.order_by(Channel.name).all()
+        q = Channel.query.order_by(Channel.name)
+        if channel_id:
+            q = q.filter_by(id=channel_id)
+        channels = q.all()
 
-        # ---- Channel declarations ----
         for ch in channels:
             ch_el = ET.SubElement(root, 'channel', id=f'ch-{ch.id}')
-            dn = ET.SubElement(ch_el, 'display-name', lang='en')
-            dn.text = ch.name
-            url_el = ET.SubElement(ch_el, 'url')
-            url_el.text = f'udp://{ch.multicast_addr}:{ch.multicast_port}'
+            ET.SubElement(ch_el, 'display-name', lang='en').text = ch.name
+            ET.SubElement(ch_el, 'url').text = f'udp://{ch.multicast_addr}:{ch.multicast_port}'
 
-        # ---- Pre-build override lookup ----
+        # Override lookup keyed by (parent_id, schedule-tz date string)
         override_map = {}
-        for ov in ScheduleEntry.query.filter(
-            ScheduleEntry.parent_id.isnot(None)
-        ).all():
+        parent_ids = [e.id for e in ScheduleEntry.query.filter_by(parent_id=None).all()]
+        for ov in ScheduleEntry.query.filter(ScheduleEntry.parent_id.isnot(None)).all():
             if ov.override_date:
                 override_map[(ov.parent_id, ov.override_date.isoformat())] = ov
 
-        # ---- Programme entries ----
-        programmes = []   # collect (start_str, Element) for sorting
+        programmes = []
 
         for ch in channels:
             entries = ScheduleEntry.query.filter_by(
@@ -69,7 +71,8 @@ def generate_xmltv(app, days=7):
 
             for entry in entries:
                 for occ_start, occ_end in expand_occurrences(entry, now, end):
-                    date_str = occ_start.date().isoformat()
+                    # Use schedule-tz date to match override_date in DB
+                    date_str = _sched_date(occ_start).isoformat()
                     override = override_map.get((entry.id, date_str))
 
                     if override:
@@ -88,29 +91,21 @@ def generate_xmltv(app, days=7):
                     prog = ET.Element('programme',
                                       start=start_str, stop=stop_str,
                                       channel=f'ch-{ch.id}')
-
                     ET.SubElement(prog, 'title', lang='en').text = eff.title
-
                     if eff.notes:
                         ET.SubElement(prog, 'desc', lang='en').text = eff.notes
-
                     ET.SubElement(prog, 'category', lang='en').text = \
                         _CATEGORY_MAP.get(eff.entry_type, 'Entertainment')
-
-                    ET.SubElement(prog, 'length', units='seconds').text = \
-                        str(eff.duration)
-
+                    ET.SubElement(prog, 'length', units='seconds').text = str(eff.duration)
                     if eff.entry_type in ('live', 'recording'):
                         ET.SubElement(prog, 'live')
 
                     programmes.append((start_str, prog))
 
-        # Sort all programmes chronologically then attach to root
         programmes.sort(key=lambda x: x[0])
         for _, prog_el in programmes:
             root.append(prog_el)
 
-        # Pretty-print (Python 3.9+)
         try:
             ET.indent(root, space='  ')
         except AttributeError:
@@ -120,17 +115,21 @@ def generate_xmltv(app, days=7):
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body
 
 
-def generate_m3u(app):
+def generate_m3u(app, channel_id=None):
     """
-    Return an M3U playlist as a unicode string containing all channels.
-    The x-tvg-url points at the EPG public URL from settings.
+    Return an M3U playlist as a unicode string.
+    If channel_id is given, only include that channel.
     """
     with app.app_context():
         from models import Channel, AppSetting
 
         epg_url     = AppSetting.get('epg.public_url', '')
         source_name = AppSetting.get('epg.source_name', 'Streamer MCR')
-        channels    = Channel.query.order_by(Channel.name).all()
+
+        q = Channel.query.order_by(Channel.name)
+        if channel_id:
+            q = q.filter_by(id=channel_id)
+        channels = q.all()
 
         lines = [f'#EXTM3U x-tvg-url="{epg_url}"', '']
 

@@ -132,7 +132,40 @@
           <div class="mb-3 d-flex align-items-center justify-content-between">
             <label class="form-label mb-0">Show slate when idle</label>
             <div class="form-check form-switch mb-0">
-              <input class="form-check-input" type="checkbox" id="cf-slate" checked>
+              <input class="form-check-input" type="checkbox" id="cf-slate" checked
+                     onchange="toggleSlateOptions()">
+            </div>
+          </div>
+          <div id="slate-options">
+            <div class="mb-2 d-flex gap-2">
+              <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                     style="border:1px solid var(--border-md);cursor:pointer" id="slate-color-label">
+                <input type="radio" name="cf-slate-type" value="color"
+                       class="form-check-input m-0" checked onchange="toggleSlateAsset()">
+                <div>
+                  <div style="font-size:0.82rem;font-weight:600;color:#fff">Black + tone</div>
+                  <div style="font-size:0.7rem;color:var(--text-muted)">Default color slate</div>
+                </div>
+              </label>
+              <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                     style="border:1px solid var(--border-md);cursor:pointer" id="slate-file-label">
+                <input type="radio" name="cf-slate-type" value="file"
+                       class="form-check-input m-0" onchange="toggleSlateAsset()">
+                <div>
+                  <div style="font-size:0.82rem;font-weight:600;color:#fff">File loop</div>
+                  <div style="font-size:0.7rem;color:var(--text-muted)">Loop a media file</div>
+                </div>
+              </label>
+            </div>
+            <div id="slate-file-row" class="mb-3 d-none">
+              <label class="form-label">Slate file path</label>
+              <div class="input-group">
+                <input class="form-control mono" id="cf-slate-path"
+                       placeholder="/mnt/MasterControlMedia/slate.mxf">
+                <button class="btn btn-ghost" type="button" onclick="openSlateAssetPicker()">
+                  <i class="bi bi-folder2-open"></i>
+                </button>
+              </div>
             </div>
           </div>
           <div class="mb-3">

@@ -6,13 +6,19 @@ from datetime import datetime, timedelta, date, timezone
 from flask import Flask, render_template, request, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
 
+from dateutil import tz as tzlib
+
 import config
 from models import db, Channel, ScheduleEntry, MediaAsset, SCTEEvent, AppSetting
 from stream_manager import stream_manager
 from media_pool import scan_pool, scan_status
 from dektec_handler import status as dektec_status
-from scheduler import init_scheduler, expand_occurrences, get_current_item, get_next_item
+from scheduler import (init_scheduler, expand_occurrences,
+                       get_current_item, get_next_item, _sched_date)
 import sftp_uploader
+
+_UTC = tzlib.tzutc()
+_SCHEDULE_TZ = tzlib.gettz(config.SCHEDULE_TIMEZONE)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,15 +64,18 @@ def create_app():
         os.makedirs(config.MEDIA_POOL_PATH, exist_ok=True)
         os.makedirs(config.RECORDING_PATH, exist_ok=True)
         _seed_settings(app)
-        # Schema migration: add loop_enabled to existing databases
+        # Schema migrations for columns added after initial deploy
         from sqlalchemy import text
-        try:
-            db.session.execute(text(
-                'ALTER TABLE schedule_entries ADD COLUMN loop_enabled BOOLEAN NOT NULL DEFAULT 0'
-            ))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        for stmt in [
+            'ALTER TABLE schedule_entries ADD COLUMN loop_enabled BOOLEAN NOT NULL DEFAULT 0',
+            'ALTER TABLE channels ADD COLUMN slate_type VARCHAR(20) NOT NULL DEFAULT "color"',
+            'ALTER TABLE channels ADD COLUMN slate_asset_path VARCHAR(500)',
+        ]:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
 
     init_scheduler(app, stream_manager)
 
@@ -131,6 +140,8 @@ def create_app():
             multicast_port=int(data.get('multicast_port', 5000)),
             video_bitrate=data.get('video_bitrate', '6M'),
             slate_enabled=data.get('slate_enabled', True),
+            slate_type=data.get('slate_type', 'color'),
+            slate_asset_path=data.get('slate_asset_path') or None,
             color=data.get('color', '#3788d8'),
             notes=data.get('notes', ''),
         )
@@ -150,9 +161,10 @@ def create_app():
         ch = Channel.query.get_or_404(cid)
         data = request.get_json(force=True)
         for field in ('name', 'multicast_addr', 'multicast_port',
-                      'video_bitrate', 'slate_enabled', 'color', 'notes'):
+                      'video_bitrate', 'slate_enabled', 'color', 'notes',
+                      'slate_type', 'slate_asset_path'):
             if field in data:
-                setattr(ch, field, data[field])
+                setattr(ch, field, data[field] or None if field == 'slate_asset_path' else data[field])
         db.session.commit()
         return jsonify(ch.to_dict())
 
@@ -221,7 +233,8 @@ def create_app():
         for entry in entries:
             occs = expand_occurrences(entry, start, end)
             for occ_start, occ_end in occs:
-                date_str = occ_start.date().isoformat()
+                # Use schedule-tz date to match override_date stored in DB
+                date_str = _sched_date(occ_start).isoformat()
                 override = override_map.get((entry.id, date_str))
 
                 if override:
@@ -231,18 +244,20 @@ def create_app():
                     ov_end = ov_start + timedelta(seconds=override.duration)
                     ev = _fc_event(override, ov_start, ov_end,
                                    isOverride=True, parentId=entry.id,
-                                   occurrenceDate=date_str)
+                                   occurrenceDate=date_str)  # already ET date
                 else:
                     ev = _fc_event(entry, occ_start, occ_end,
                                    isRecurring=bool(entry.rrule),
-                                   occurrenceDate=date_str)
+                                   occurrenceDate=date_str)  # ET date
                 events.append(ev)
 
         return jsonify(events)
 
     def _fc_event(entry, start, end, **extra_props):
+        # Use schedule-tz date so occurrence keys match the broadcast day
+        sched_date = _sched_date(start)
         return {
-            'id': f'entry-{entry.id}-{start.date().isoformat()}',
+            'id': f'entry-{entry.id}-{sched_date.isoformat()}',
             'title': entry.title,
             'start': start.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'end':   end.strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -504,6 +519,25 @@ def create_app():
             'Content-Disposition': 'attachment; filename="playlist.m3u"',
         }
 
+    @app.route('/api/epg/channel/<int:cid>', methods=['GET'])
+    def api_epg_channel_xml(cid):
+        Channel.query.get_or_404(cid)
+        from epg_generator import generate_xmltv
+        days = request.args.get('days', 7, type=int)
+        xml = generate_xmltv(app, days=days, channel_id=cid)
+        return xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+
+    @app.route('/api/epg/channel/<int:cid>/m3u', methods=['GET'])
+    def api_epg_channel_m3u(cid):
+        ch = Channel.query.get_or_404(cid)
+        from epg_generator import generate_m3u
+        m3u = generate_m3u(app, channel_id=cid)
+        slug = ch.name.lower().replace(' ', '_')
+        return m3u, 200, {
+            'Content-Type': 'application/x-mpegurl; charset=utf-8',
+            'Content-Disposition': f'attachment; filename="ch{cid}_{slug}.m3u"',
+        }
+
     @app.route('/api/epg/upload', methods=['POST'])
     def api_epg_upload():
         import threading
@@ -562,7 +596,10 @@ def create_app():
         if 'duration' in data:
             entry.duration = int(data['duration'])
         if 'rrule' in data:
-            entry.rrule = data['rrule'] or None
+            val = (data['rrule'] or '').strip()
+            if val.upper().startswith('RRULE:'):
+                val = val[6:].strip()
+            entry.rrule = val or None
         if 'exdates' in data:
             entry.set_exdates(data['exdates'])
         if 'color' in data:
