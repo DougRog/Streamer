@@ -35,18 +35,17 @@ def _settings(app):
     """Return SFTP config dict, env vars > DB > empty."""
     with app.app_context():
         from models import AppSetting
-        db_get = AppSetting.get
 
-    def pick(env_key, db_key, default=''):
-        return os.environ.get(env_key) or db_get(db_key, '') or default
+        def pick(env_key, db_key, default=''):
+            return os.environ.get(env_key) or AppSetting.get(db_key, '') or default
 
-    return {
-        'host':     pick('SFTP_HOST',     'sftp.host'),
-        'port':     int(pick('SFTP_PORT', 'sftp.port', '22') or 22),
-        'username': pick('SFTP_USERNAME', 'sftp.username'),
-        'password': pick('SFTP_PASSWORD', 'sftp.password'),
-        'path':     pick('SFTP_PATH',     'sftp.path', '/'),
-    }
+        return {
+            'host':     pick('SFTP_HOST',     'sftp.host'),
+            'port':     int(pick('SFTP_PORT', 'sftp.port', '22') or 22),
+            'username': pick('SFTP_USERNAME', 'sftp.username'),
+            'password': pick('SFTP_PASSWORD', 'sftp.password'),
+            'path':     pick('SFTP_PATH',     'sftp.path', '/'),
+        }
 
 
 def _connect(cfg):
