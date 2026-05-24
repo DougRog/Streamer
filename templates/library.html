@@ -148,6 +148,12 @@ function triggerScan() {
   fetch('/api/assets/scan', {method:'POST'})
     .then(r => r.json())
     .then(d => {
+      if (!d.ok) {
+        showToast(d.message || 'Scan failed', 'danger', 8000);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Scan Library';
+        return;
+      }
       showToast(d.message || 'Scan started', 'info');
       pollScan();
     });
@@ -162,7 +168,12 @@ function pollScan() {
         badge.innerHTML = `<span class="spinner-border spinner-border-sm" style="width:.6rem;height:.6rem;border-width:2px"></span> Scanning ${s.done}/${s.total}`;
         setTimeout(pollScan, 1000);
       } else {
-        showToast('Library scan complete', 'success');
+        const errCount = s.errors?.length || 0;
+        if (errCount > 0) {
+          showToast(`Scan complete — ${errCount} file(s) could not be probed. Check server logs.`, 'warning', 8000);
+        } else {
+          showToast('Library scan complete', 'success');
+        }
         setTimeout(() => location.reload(), 800);
       }
     });

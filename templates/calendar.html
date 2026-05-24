@@ -93,13 +93,22 @@
               <label class="form-label">Start time (UTC)</label>
               <input type="datetime-local" class="form-control" id="f-start" required>
             </div>
-            <div class="col-md-5">
+            <div class="col-md-5" id="duration-col">
               <label class="form-label">Duration</label>
               <div class="input-group">
                 <input type="number" class="form-control" id="f-duration" value="3600" min="1">
                 <span class="input-group-text" style="background:var(--bg-elevated);border-color:var(--border-md);color:var(--text-sub)">sec</span>
               </div>
               <div id="duration-hint" class="text-muted mt-1" style="font-size:0.72rem"></div>
+            </div>
+            <div class="col-md-5 d-none" id="loop-duration-col">
+              <label class="form-label">Duration</label>
+              <div class="d-flex align-items-center" style="height:38px">
+                <span style="font-size:0.85rem;color:var(--text-sub)">
+                  <i class="bi bi-arrow-clockwise me-1" style="color:var(--accent)"></i>
+                  Fills until next scheduled event
+                </span>
+              </div>
             </div>
 
             <!-- Content type -->

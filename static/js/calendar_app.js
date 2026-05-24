@@ -240,7 +240,9 @@ function saveEvent() {
     asset_path:   document.getElementById('f-asset-path').value.trim() || null,
     live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
     start_time:   new Date(startVal).toISOString(),
-    duration:     parseInt(document.getElementById('f-duration').value),
+    duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
+                    ? 86400   // scheduler cuts the loop when the next event starts
+                    : parseInt(document.getElementById('f-duration').value),
     rrule:        document.getElementById('f-rrule').value.trim() || null,
     color:        document.getElementById('f-color').value,
     notes:        document.getElementById('f-notes').value.trim(),
@@ -569,6 +571,8 @@ function toggleTypePanels(type) {
 function toggleLoopHint() {
   const on = document.getElementById('f-loop-enabled').checked;
   document.getElementById('loop-hint').style.display = on ? 'block' : 'none';
+  document.getElementById('duration-col').classList.toggle('d-none', on);
+  document.getElementById('loop-duration-col').classList.toggle('d-none', !on);
 }
 
 function highlightTypeLabel(type) {
