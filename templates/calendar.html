@@ -149,6 +149,22 @@
                   <i class="bi bi-folder2-open"></i> Browse
                 </button>
               </div>
+              <div class="mt-2 d-flex align-items-center gap-2">
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="f-loop-enabled" role="switch"
+                         onchange="toggleLoopHint()">
+                  <label class="form-check-label" for="f-loop-enabled"
+                         style="font-size:0.82rem;color:var(--text-sub)">
+                    Loop file until next scheduled event
+                  </label>
+                </div>
+              </div>
+              <div id="loop-hint" class="mt-1" style="font-size:0.72rem;color:var(--text-muted);display:none">
+                <i class="bi bi-info-circle me-1"></i>
+                FFmpeg will repeat the file continuously. Set <strong>Duration</strong>
+                to the gap before your next scheduled item — the scheduler will cut the
+                loop automatically when new content starts.
+              </div>
             </div>
 
             <!-- Live source -->
@@ -296,4 +312,8 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.js"></script>
 <script src="{{ url_for('static', filename='js/calendar_app.js') }}"></script>
+<style>
+.spin { animation: spin .8s linear infinite; display:inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
 {% endblock %}

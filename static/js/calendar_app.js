@@ -79,8 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
     eventContent(arg) {
       const ep = arg.event.extendedProps;
       const icons = [];
-      if (ep.isRecurring) icons.push('<i class="bi bi-arrow-repeat type-icon"></i>');
-      if (ep.isOverride)  icons.push('<i class="bi bi-pencil-square type-icon"></i>');
+      if (ep.isRecurring)  icons.push('<i class="bi bi-arrow-repeat type-icon"></i>');
+      if (ep.isOverride)   icons.push('<i class="bi bi-pencil-square type-icon"></i>');
+      if (ep.loopEnabled)  icons.push('<i class="bi bi-arrow-clockwise type-icon"></i>');
       if (ep.entryType === 'live')      icons.push('<i class="bi bi-camera-video type-icon"></i>');
       if (ep.entryType === 'recording') icons.push('<i class="bi bi-record-circle type-icon"></i>');
       return {
@@ -201,6 +202,8 @@ function openEditModal(fcEvent) {
   document.getElementById('f-rrule').value            = ep.rrule || '';
   document.getElementById('f-notes').value            = ep.notes || '';
   document.getElementById('f-color').value            = fcEvent.backgroundColor || '#6366f1';
+  document.getElementById('f-loop-enabled').checked   = !!ep.loopEnabled;
+  toggleLoopHint();
 
   const typeVal = ep.entryType || 'file';
   document.querySelector(`input[name=entryType][value=${typeVal}]`).checked = true;
@@ -231,16 +234,17 @@ function saveEvent() {
   if (!startVal) { showToast('Start time is required', 'warning'); return; }
 
   const payload = {
-    channel_id:  parseInt(document.getElementById('f-channel').value),
-    title:       document.getElementById('f-title').value.trim(),
-    entry_type:  entryType,
-    asset_path:  document.getElementById('f-asset-path').value.trim() || null,
-    live_source: document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
-    start_time:  new Date(startVal).toISOString(),
-    duration:    parseInt(document.getElementById('f-duration').value),
-    rrule:       document.getElementById('f-rrule').value.trim() || null,
-    color:       document.getElementById('f-color').value,
-    notes:       document.getElementById('f-notes').value.trim(),
+    channel_id:   parseInt(document.getElementById('f-channel').value),
+    title:        document.getElementById('f-title').value.trim(),
+    entry_type:   entryType,
+    asset_path:   document.getElementById('f-asset-path').value.trim() || null,
+    live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
+    start_time:   new Date(startVal).toISOString(),
+    duration:     parseInt(document.getElementById('f-duration').value),
+    rrule:        document.getElementById('f-rrule').value.trim() || null,
+    color:        document.getElementById('f-color').value,
+    notes:        document.getElementById('f-notes').value.trim(),
+    loop_enabled: entryType === 'file' && document.getElementById('f-loop-enabled').checked,
   };
 
   if (!payload.title)      { showToast('Title is required', 'warning'); return; }
@@ -442,8 +446,18 @@ function applyRepeatDay() {
 //  Asset picker                                                       //
 // ------------------------------------------------------------------ //
 function openAssetPicker() {
-  renderAssetList(allAssets);
+  const searchEl = document.getElementById('asset-search');
+  if (searchEl) searchEl.value = '';
+  document.getElementById('asset-list').innerHTML =
+    '<div class="text-center text-muted py-4"><i class="bi bi-arrow-repeat spin me-1"></i>Loading…</div>';
   assetModal.show();
+  fetch('/api/assets')
+    .then(r => r.json())
+    .then(d => { allAssets = d; filterAssets(); })
+    .catch(() => {
+      document.getElementById('asset-list').innerHTML =
+        '<div class="text-center text-muted py-4">Failed to load media library.</div>';
+    });
 }
 
 function filterAssets() {
@@ -533,8 +547,10 @@ function resetForm() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  document.getElementById('f-duration').value = 3600;
-  document.getElementById('f-color').value    = '#6366f1';
+  document.getElementById('f-duration').value      = 3600;
+  document.getElementById('f-color').value         = '#6366f1';
+  document.getElementById('f-loop-enabled').checked = false;
+  toggleLoopHint();
   document.querySelector('input[name=entryType][value=file]').checked = true;
   document.querySelector('input[name=editMode][value=this]').checked  = true;
   toggleTypePanels('file');
@@ -548,6 +564,11 @@ function resetForm() {
 function toggleTypePanels(type) {
   document.getElementById('filePicker').classList.toggle('d-none', type !== 'file');
   document.getElementById('liveSource').classList.toggle('d-none', type === 'file');
+}
+
+function toggleLoopHint() {
+  const on = document.getElementById('f-loop-enabled').checked;
+  document.getElementById('loop-hint').style.display = on ? 'block' : 'none';
 }
 
 function highlightTypeLabel(type) {

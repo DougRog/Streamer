@@ -58,6 +58,15 @@ def create_app():
         os.makedirs(config.MEDIA_POOL_PATH, exist_ok=True)
         os.makedirs(config.RECORDING_PATH, exist_ok=True)
         _seed_settings(app)
+        # Schema migration: add loop_enabled to existing databases
+        from sqlalchemy import text
+        try:
+            db.session.execute(text(
+                'ALTER TABLE schedule_entries ADD COLUMN loop_enabled BOOLEAN NOT NULL DEFAULT 0'
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     init_scheduler(app, stream_manager)
 
@@ -248,6 +257,7 @@ def create_app():
                 'duration': entry.duration,
                 'rrule': entry.rrule or '',
                 'notes': entry.notes or '',
+                'loopEnabled': bool(entry.loop_enabled),
                 **extra_props,
             },
         }
@@ -559,6 +569,8 @@ def create_app():
             entry.color = data['color']
         if 'notes' in data:
             entry.notes = data['notes']
+        if 'loop_enabled' in data:
+            entry.loop_enabled = bool(data['loop_enabled'])
 
         if not entry.title:
             raise ValueError('title is required')

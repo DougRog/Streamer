@@ -62,6 +62,7 @@ class ScheduleEntry(db.Model):
     override_date = db.Column(db.Date, nullable=True)
     color = db.Column(db.String(20))
     notes = db.Column(db.Text)
+    loop_enabled = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     overrides = db.relationship(
@@ -101,6 +102,7 @@ class ScheduleEntry(db.Model):
             'override_date': self.override_date.isoformat() if self.override_date else None,
             'color': self.effective_color(),
             'notes': self.notes,
+            'loop_enabled': bool(self.loop_enabled),
         }
 
 

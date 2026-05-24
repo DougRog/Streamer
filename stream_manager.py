@@ -130,9 +130,21 @@ class StreamManager:
     # ------------------------------------------------------------------ #
 
     def start_file_stream(self, channel, entry, occurrence_start):
-        cmd = self._file_cmd(channel, entry.asset_path, occurrence_start, entry.duration)
-        return self._replace_channel_stream(channel.id, entry.id, cmd,
-                                            f'File: {entry.title}')
+        loop = bool(getattr(entry, 'loop_enabled', False))
+        file_dur = None
+        if loop and entry.asset_path and self._app:
+            try:
+                with self._app.app_context():
+                    from models import MediaAsset
+                    asset = MediaAsset.query.filter_by(path=entry.asset_path).first()
+                    if asset and asset.duration_seconds:
+                        file_dur = asset.duration_seconds
+            except Exception:
+                pass
+        cmd = self._file_cmd(channel, entry.asset_path, occurrence_start,
+                             entry.duration, loop=loop, file_duration=file_dur)
+        desc = f'File[loop]: {entry.title}' if loop else f'File: {entry.title}'
+        return self._replace_channel_stream(channel.id, entry.id, cmd, desc)
 
     def start_live_stream(self, channel, entry):
         from dektec_handler import get_ffmpeg_input_args
@@ -265,11 +277,20 @@ class StreamManager:
         return (f'udp://{channel.multicast_addr}:{channel.multicast_port}'
                 f'?pkt_size=1316&ttl={MULTICAST_TTL}&reuse=1')
 
-    def _file_cmd(self, channel, asset_path, occurrence_start, duration):
+    def _file_cmd(self, channel, asset_path, occurrence_start, duration,
+                  loop=False, file_duration=None):
         now = datetime.utcnow()
-        seek = max(0.0, (now - occurrence_start).total_seconds())
+        slot_elapsed = max(0.0, (now - occurrence_start).total_seconds())
+
+        if loop:
+            fd = file_duration or duration
+            seek = (slot_elapsed % fd) if fd > 0 else 0.0
+        else:
+            seek = slot_elapsed
 
         cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'level+warning']
+        if loop:
+            cmd += ['-stream_loop', '-1']
         if seek > 2.0:
             cmd += ['-ss', f'{seek:.3f}']
         cmd += ['-re', '-i', asset_path]

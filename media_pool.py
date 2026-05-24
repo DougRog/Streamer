@@ -178,16 +178,8 @@ def scan_pool(app):
                         db.session.delete(asset)
                 db.session.commit()
 
-            # Divide work among threads
-            chunk = max(1, len(all_paths) // SCAN_WORKER_THREADS)
-            chunks = [all_paths[i:i + chunk] for i in range(0, len(all_paths), chunk)]
-            threads = []
-            for c in chunks:
-                t = threading.Thread(target=_scan_worker, args=(app, c, []), daemon=True)
-                threads.append(t)
-                t.start()
-            for t in threads:
-                t.join()
+            # Single worker thread — avoids SQLite concurrent-write lock contention
+            _scan_worker(app, all_paths, [])
 
             logger.info('Media scan complete')
         except Exception as e:
