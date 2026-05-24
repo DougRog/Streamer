@@ -25,7 +25,8 @@ DEFAULT_VIDEO_CODEC  = os.environ.get('DEFAULT_VIDEO_CODEC',  'libx264')
 DEFAULT_VIDEO_PRESET = os.environ.get('DEFAULT_VIDEO_PRESET', '')
 
 # Multicast
-MULTICAST_TTL = int(os.environ.get('MULTICAST_TTL', '4'))
+MULTICAST_TTL       = int(os.environ.get('MULTICAST_TTL', '4'))
+MULTICAST_INTERFACE = os.environ.get('MULTICAST_INTERFACE', '10.1.224.15')
 
 # Dektec — override DEKTEC_INPUT_URI to use a specific capture source
 # Examples:
@@ -47,8 +48,9 @@ SCTE35_PID = 500
 SCTE35_LOG_EVENTS = True
 
 # Media scanning
-MEDIA_EXTENSIONS = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
-SCAN_WORKER_THREADS = 4
+MEDIA_EXTENSIONS           = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
+SCAN_WORKER_THREADS        = 4
+MEDIA_SCAN_INTERVAL_HOURS  = int(os.environ.get('MEDIA_SCAN_INTERVAL_HOURS', '1'))
 FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg/ffprobe')
 FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg/ffmpeg')
 

@@ -22,7 +22,7 @@ from config import (
     DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_FPS,
     DEFAULT_VIDEO_BITRATE, DEFAULT_AUDIO_BITRATE, DEFAULT_GOP_SIZE,
     DEFAULT_VIDEO_CODEC, DEFAULT_VIDEO_PRESET,
-    MULTICAST_TTL, RECORDING_PATH, FFMPEG_PATH,
+    MULTICAST_TTL, MULTICAST_INTERFACE, RECORDING_PATH, FFMPEG_PATH,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,8 +283,11 @@ class StreamManager:
         return args
 
     def _multicast_url(self, channel):
-        return (f'udp://{channel.multicast_addr}:{channel.multicast_port}'
-                f'?pkt_size=1316&ttl={MULTICAST_TTL}&reuse=1')
+        url = (f'udp://{channel.multicast_addr}:{channel.multicast_port}'
+               f'?pkt_size=1316&ttl={MULTICAST_TTL}&reuse=1')
+        if MULTICAST_INTERFACE:
+            url += f'&localaddr={MULTICAST_INTERFACE}'
+        return url
 
     def _file_cmd(self, channel, asset_path, occurrence_start, duration,
                   loop=False, file_duration=None):
