@@ -43,6 +43,8 @@ SCTE35_LOG_EVENTS = True
 # Media scanning
 MEDIA_EXTENSIONS = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
 SCAN_WORKER_THREADS = 4
+FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg/ffprobe')
+FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg/ffmpeg')
 
 # EPG / SFTP — env vars take priority; also configurable via Settings UI.
 # These become the seed values for the DB on first run.

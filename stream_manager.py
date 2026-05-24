@@ -21,7 +21,7 @@ from datetime import datetime
 from config import (
     DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_FPS,
     DEFAULT_VIDEO_BITRATE, DEFAULT_AUDIO_BITRATE, DEFAULT_GOP_SIZE,
-    MULTICAST_TTL, RECORDING_PATH,
+    MULTICAST_TTL, RECORDING_PATH, FFMPEG_PATH,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,7 +288,7 @@ class StreamManager:
         else:
             seek = slot_elapsed
 
-        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'level+warning']
+        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
         if loop:
             cmd += ['-stream_loop', '-1']
         if seek > 2.0:
@@ -301,7 +301,7 @@ class StreamManager:
         return cmd
 
     def _live_cmd(self, channel, input_args):
-        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'level+warning']
+        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
         cmd += input_args
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
         cmd += self._common_video_args(channel)
@@ -309,7 +309,7 @@ class StreamManager:
         return cmd
 
     def _recording_cmd(self, input_args, out_path, channel=None):
-        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'level+warning']
+        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
         cmd += input_args
 
         if channel:
@@ -330,7 +330,7 @@ class StreamManager:
     def _slate_cmd(self, channel):
         """FFmpeg lavfi color+sine → multicast. Keeps downstream alive."""
         cmd = [
-            'ffmpeg', '-hide_banner', '-loglevel', 'error',
+            FFMPEG_PATH, '-hide_banner', '-loglevel', 'error',
             '-f', 'lavfi',
             '-i', f'color=c=black:s={DEFAULT_VIDEO_WIDTH}x{DEFAULT_VIDEO_HEIGHT}'
                   f':r={DEFAULT_VIDEO_FPS}',

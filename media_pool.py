@@ -9,7 +9,7 @@ import logging
 import subprocess
 import threading
 from datetime import datetime
-from config import MEDIA_POOL_PATH, MEDIA_EXTENSIONS
+from config import MEDIA_POOL_PATH, MEDIA_EXTENSIONS, FFPROBE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +29,18 @@ def scan_status():
     }
 
 
+def _ffprobe_bin():
+    """Return the ffprobe binary path, checking the configured path then PATH."""
+    if os.path.isfile(FFPROBE_PATH) and os.access(FFPROBE_PATH, os.X_OK):
+        return FFPROBE_PATH
+    return shutil.which('ffprobe')
+
+
 def probe_file(path):
     """Run ffprobe and return parsed info dict, or None on failure."""
-    ffprobe = shutil.which('ffprobe')
+    ffprobe = _ffprobe_bin()
     if not ffprobe:
-        logger.error('ffprobe not found in PATH — install the ffmpeg package')
+        logger.error(f'ffprobe not found at {FFPROBE_PATH!r} or in PATH')
         return None
 
     cmd = [
@@ -176,8 +183,8 @@ def scan_pool(app):
     """Start a background scan of the media pool. Thread-safe."""
     global _scan_in_progress, _scan_progress, _scan_errors
 
-    if not shutil.which('ffprobe'):
-        msg = 'ffprobe not found in PATH — install the ffmpeg package (apt install ffmpeg)'
+    if not _ffprobe_bin():
+        msg = f'ffprobe not found at {FFPROBE_PATH!r} or in PATH — set FFPROBE_PATH env var or install ffmpeg'
         logger.error(msg)
         return False, msg
 
