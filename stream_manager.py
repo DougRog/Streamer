@@ -302,7 +302,7 @@ class StreamManager:
             cmd += ['-stream_loop', '-1']
         if seek > 2.0:
             cmd += ['-ss', f'{seek:.3f}']
-        cmd += ['-re', '-i', asset_path]
+        cmd += ['-re', '-copyts', '-i', asset_path]
         # Map video, audio, optional data (SCTE-35)
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
         cmd += self._common_video_args(channel)
@@ -312,6 +312,7 @@ class StreamManager:
     def _live_cmd(self, channel, input_args):
         cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
         cmd += input_args
+        cmd += ['-copyts']
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
         cmd += self._common_video_args(channel)
         cmd += ['-f', 'mpegts', self._multicast_url(channel)]
