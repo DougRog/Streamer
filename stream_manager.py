@@ -21,6 +21,7 @@ from datetime import datetime
 from config import (
     DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT, DEFAULT_VIDEO_FPS,
     DEFAULT_VIDEO_BITRATE, DEFAULT_AUDIO_BITRATE, DEFAULT_GOP_SIZE,
+    DEFAULT_VIDEO_CODEC, DEFAULT_VIDEO_PRESET,
     MULTICAST_TTL, RECORDING_PATH, FFMPEG_PATH,
 )
 
@@ -262,16 +263,24 @@ class StreamManager:
         bv = _bitrate_val(br)
         maxrate = f'{bv * 1.5:.1f}M'
         bufsize = f'{bv * 3:.1f}M'
-        return [
+        args = [
             '-vf', f'scale={DEFAULT_VIDEO_WIDTH}:{DEFAULT_VIDEO_HEIGHT}:flags=lanczos,'
                    f'fps={DEFAULT_VIDEO_FPS}',
-            '-c:v', 'libx264', '-preset', 'fast',
-            '-b:v', br, '-maxrate', maxrate, '-bufsize', bufsize,
-            '-x264opts', f'keyint={DEFAULT_GOP_SIZE}:min-keyint={DEFAULT_GOP_SIZE}:scenecut=-1',
+            '-c:v', DEFAULT_VIDEO_CODEC,
+        ]
+        if DEFAULT_VIDEO_PRESET:
+            args += ['-preset', DEFAULT_VIDEO_PRESET]
+        args += ['-b:v', br, '-maxrate', maxrate, '-bufsize', bufsize]
+        # x264opts is libx264-specific — skip for other codecs
+        if DEFAULT_VIDEO_CODEC == 'libx264':
+            args += ['-x264opts',
+                     f'keyint={DEFAULT_GOP_SIZE}:min-keyint={DEFAULT_GOP_SIZE}:scenecut=-1']
+        args += [
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', DEFAULT_AUDIO_BITRATE, '-ar', '48000',
             '-c:d', 'copy',
         ]
+        return args
 
     def _multicast_url(self, channel):
         return (f'udp://{channel.multicast_addr}:{channel.multicast_port}'
@@ -345,18 +354,24 @@ class StreamManager:
             ]
 
         # Default: black frame + 400 Hz tone
-        return [
+        cmd = [
             FFMPEG_PATH, '-hide_banner', '-loglevel', 'error',
             '-f', 'lavfi',
             '-i', f'color=c=black:s={DEFAULT_VIDEO_WIDTH}x{DEFAULT_VIDEO_HEIGHT}'
                   f':r={DEFAULT_VIDEO_FPS}',
             '-f', 'lavfi', '-i', 'sine=frequency=400:sample_rate=48000',
             '-map', '0:v', '-map', '1:a',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '500k',
+            '-c:v', DEFAULT_VIDEO_CODEC,
+        ]
+        if DEFAULT_VIDEO_PRESET:
+            cmd += ['-preset', DEFAULT_VIDEO_PRESET]
+        cmd += [
+            '-b:v', '500k',
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '64k', '-ar', '48000',
             '-f', 'mpegts', self._multicast_url(channel),
         ]
+        return cmd
 
 
 # Module-level singleton

@@ -70,6 +70,12 @@ def expand_occurrences(entry, window_start, window_end):
     if rrule_str.upper().startswith('RRULE:'):
         rrule_str = rrule_str[6:].strip()
 
+    # Auto-fix: BYDAY/BYMONTHDAY without FREQ almost always means FREQ=WEEKLY
+    if 'FREQ=' not in rrule_str.upper():
+        if any(k in rrule_str.upper() for k in ('BYDAY=', 'BYMONTHDAY=', 'BYWEEKNO=')):
+            rrule_str = 'FREQ=WEEKLY;' + rrule_str
+            logger.info(f'[entry {entry.id}] Auto-added FREQ=WEEKLY to partial RRULE')
+
     try:
         rule = rrulelib.rrulestr(
             f'DTSTART:{dtstart_sched.strftime("%Y%m%dT%H%M%S")}\nRRULE:{rrule_str}'
@@ -194,7 +200,8 @@ class PlayoutScheduler:
         self._thread = None
         self._playing: dict = {}
         self._last_epg_upload = None   # datetime of last successful EPG push
-        self._slate_last_attempt: dict = {}  # channel_id → last start attempt time
+        self._slate_last_attempt: dict = {}    # channel_id → last slate start time
+        self._content_last_attempt: dict = {}  # channel_id → last content start time
 
     def start(self):
         self._thread = threading.Thread(
@@ -270,8 +277,11 @@ class PlayoutScheduler:
         key = (entry.id, occ_start)
         if prev == key:
             if not self._sm.get_channel_info(channel.id)['running']:
-                logger.warning(f'[ch{channel.id}] FFmpeg died, restarting "{entry.title}"')
-                self._launch(channel, entry, occ_start)
+                last = self._content_last_attempt.get(channel.id)
+                if last is None or (now - last).total_seconds() >= 30:
+                    logger.warning(f'[ch{channel.id}] FFmpeg died, restarting "{entry.title}"')
+                    self._launch(channel, entry, occ_start)
+                    self._content_last_attempt[channel.id] = now
             return
 
         logger.info(
@@ -280,6 +290,7 @@ class PlayoutScheduler:
         )
         self._launch(channel, entry, occ_start)
         self._playing[channel.id] = key
+        self._content_last_attempt[channel.id] = now
 
     def _launch(self, channel, entry, occ_start):
         if entry.entry_type == 'file':

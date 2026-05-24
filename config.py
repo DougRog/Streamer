@@ -18,6 +18,11 @@ DEFAULT_VIDEO_FPS = '60000/1001'    # 59.94fps
 DEFAULT_VIDEO_BITRATE = '6M'
 DEFAULT_AUDIO_BITRATE = '192k'
 DEFAULT_GOP_SIZE = 120              # 2 seconds at 59.94fps
+# Set DEFAULT_VIDEO_CODEC to match what your FFmpeg build supports.
+# Set DEFAULT_VIDEO_PRESET to '' to disable -preset (needed for hardware encoders
+# or custom builds without libx264 preset support).
+DEFAULT_VIDEO_CODEC  = os.environ.get('DEFAULT_VIDEO_CODEC',  'libx264')
+DEFAULT_VIDEO_PRESET = os.environ.get('DEFAULT_VIDEO_PRESET', '')
 
 # Multicast
 MULTICAST_TTL = int(os.environ.get('MULTICAST_TTL', '4'))

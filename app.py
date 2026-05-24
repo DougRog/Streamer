@@ -599,6 +599,10 @@ def create_app():
             val = (data['rrule'] or '').strip()
             if val.upper().startswith('RRULE:'):
                 val = val[6:].strip()
+            # Auto-fix partial RRULE saved without FREQ
+            if val and 'FREQ=' not in val.upper():
+                if any(k in val.upper() for k in ('BYDAY=', 'BYMONTHDAY=', 'BYWEEKNO=')):
+                    val = 'FREQ=WEEKLY;' + val
             entry.rrule = val or None
         if 'exdates' in data:
             entry.set_exdates(data['exdates'])
