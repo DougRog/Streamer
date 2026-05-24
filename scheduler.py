@@ -33,12 +33,24 @@ def expand_occurrences(entry, window_start, window_end):
         return []
 
     dtstart = entry.start_time
+    # Strip accidental "RRULE:" prefix that users sometimes type
+    rrule_str = entry.rrule.strip()
+    if rrule_str.upper().startswith('RRULE:'):
+        rrule_str = rrule_str[6:].strip()
+
     try:
         rule = rrulelib.rrulestr(
-            f'DTSTART:{dtstart.strftime("%Y%m%dT%H%M%S")}\nRRULE:{entry.rrule}'
+            f'DTSTART:{dtstart.strftime("%Y%m%dT%H%M%S")}\nRRULE:{rrule_str}'
         )
     except Exception as e:
-        logger.error(f'Bad RRULE on entry {entry.id}: {e}')
+        logger.warning(
+            f'Bad RRULE on entry {entry.id} ({rrule_str!r}): {e} '
+            f'— showing as one-time event. Fix or delete this entry.'
+        )
+        # Fall back: treat as a one-time event at its original start_time
+        occ_end = entry.start_time + timedelta(seconds=entry.duration)
+        if entry.start_time < window_end and occ_end > window_start:
+            return [(entry.start_time, occ_end)]
         return []
 
     exdate_set = set(entry.get_exdates())
@@ -145,6 +157,7 @@ class PlayoutScheduler:
         self._thread = None
         self._playing: dict = {}
         self._last_epg_upload = None   # datetime of last successful EPG push
+        self._slate_last_attempt: dict = {}  # channel_id → last start attempt time
 
     def start(self):
         self._thread = threading.Thread(
@@ -206,11 +219,15 @@ class PlayoutScheduler:
                 self._playing.pop(channel.id, None)
                 if channel.slate_enabled:
                     self._sm.start_slate(channel)
+                    self._slate_last_attempt[channel.id] = now
                 else:
                     self._sm.stop_channel(channel.id)
             elif channel.slate_enabled and not self._sm.get_channel_info(channel.id)['running']:
-                # Restart a dead slate
-                self._sm.start_slate(channel)
+                # Restart a dead slate — but back off if it's crashing rapidly
+                last = self._slate_last_attempt.get(channel.id)
+                if last is None or (now - last).total_seconds() >= 30:
+                    self._sm.start_slate(channel)
+                    self._slate_last_attempt[channel.id] = now
             return
 
         key = (entry.id, occ_start)

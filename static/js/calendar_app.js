@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
       center: 'title',
       right:  'dayGridMonth,timeGridWeek,timeGridDay,listWeek',
     },
+    timeZone:      'UTC',
     height:        'auto',
     nowIndicator:  true,
     editable:      true,
@@ -239,7 +240,7 @@ function saveEvent() {
     entry_type:   entryType,
     asset_path:   document.getElementById('f-asset-path').value.trim() || null,
     live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
-    start_time:   new Date(startVal).toISOString(),
+    start_time:   new Date(startVal + ':00Z').toISOString(),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
                     ? 86400   // scheduler cuts the loop when the next event starts
                     : parseInt(document.getElementById('f-duration').value),
@@ -361,7 +362,7 @@ function openRepeatDayModal() {
   // Default date to the currently viewed week's Monday (or today)
   const d = calendar.getDate();
   const monday = new Date(d);
-  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   document.getElementById('rd-date').value = toDateString(monday);
   document.getElementById('rd-until').value = '';
   document.getElementById('rd-preview-list').innerHTML =
@@ -608,13 +609,13 @@ function updateDurationHint() {
 
 function toInputValue(dt) {
   const pad = n => String(n).padStart(2,'0');
-  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`
-       + `T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())}`
+       + `T${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}`;
 }
 
 function toDateString(dt) {
   const pad = n => String(n).padStart(2,'0');
-  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())}`;
 }
 
 function escHtml(s) {

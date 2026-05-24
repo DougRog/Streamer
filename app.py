@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 
 from flask import Flask, render_template, request, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
@@ -199,11 +199,11 @@ def create_app():
         except (KeyError, ValueError):
             return jsonify({'error': 'start and end ISO params required'}), 400
 
-        # Normalise to naive UTC
+        # Normalise to naive UTC (convert, don't just strip)
         if start.tzinfo:
-            start = start.replace(tzinfo=None)
+            start = start.astimezone(timezone.utc).replace(tzinfo=None)
         if end.tzinfo:
-            end = end.replace(tzinfo=None)
+            end = end.astimezone(timezone.utc).replace(tzinfo=None)
 
         channel_filter = request.args.get('channel_id', type=int)
         q = ScheduleEntry.query.filter_by(parent_id=None)
@@ -244,8 +244,8 @@ def create_app():
         return {
             'id': f'entry-{entry.id}-{start.date().isoformat()}',
             'title': entry.title,
-            'start': start.isoformat(),
-            'end': end.isoformat(),
+            'start': start.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'end':   end.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'color': entry.effective_color(),
             'extendedProps': {
                 'entryId': entry.id,
