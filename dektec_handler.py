@@ -177,10 +177,46 @@ def status():
     return dektec_status()
 
 
+def _probe_dektec_port(card, port):
+    """
+    Try to open DekTec card:port briefly via FFmpeg.
+    Returns ('present', has_signal) or ('absent', False).
+
+    TimeoutExpired → device opened but hung waiting for signal → present.
+    Quick exit with a 'no device' error message → absent.
+    Quick exit without error → signal was present and brief read succeeded.
+    """
+    try:
+        r = subprocess.run(
+            [FFMPEG_PATH, '-hide_banner', '-loglevel', 'verbose',
+             '-f', 'dektec', '-i', f'{card}:{port}',
+             '-t', '0.5', '-f', 'null', '-'],
+            capture_output=True, text=True, timeout=5
+        )
+        out = (r.stdout + r.stderr).lower()
+        absent_keywords = (
+            'no dta device', 'invalid device', 'no device found',
+            'cannot open device', 'device not found',
+            'dta error: no', 'dta error: invalid',
+        )
+        if any(kw in out for kw in absent_keywords):
+            return 'absent', False
+        return 'present', (r.returncode == 0)
+    except subprocess.TimeoutExpired:
+        # FFmpeg opened the device but hung waiting for signal — device is present
+        return 'present', False
+    except (FileNotFoundError, OSError):
+        return 'absent', False
+
+
 def list_inputs():
     """
     Return a list of detected SDI/capture input candidates, cached for 60 s.
-    Each entry: {'label': str, 'value': str, 'type': str}
+    Each entry: {'label': str, 'value': str, 'type': str, 'signal': bool|None}
+
+    DekTec ports are discovered by probing card 0-1 port 0-7 via FFmpeg.
+    Non-existent ports return immediately; present-but-no-signal ports hit
+    the 5 s timeout — so worst case is about 5 s per present-no-signal port.
     """
     global _inputs_cache, _inputs_cache_time
 
@@ -190,35 +226,31 @@ def list_inputs():
     inputs = []
 
     if _device_available('dektec'):
-        # Count DekTec ports from driver device files created by the Linux kernel module.
-        # The DekTec driver creates /dev/Dta-N (1-based) for each port it exposes.
-        dta_files = sorted(set(
-            glob.glob('/dev/Dta-[0-9]*') +
-            glob.glob('/dev/Dta[0-9]*')
-        ))
-
-        port_count = len(dta_files) if dta_files else 1
-
-        card, port = 0, 0
-        for i in range(port_count):
-            label = f'DekTec card {card} port {port}'
-            if i < len(dta_files):
-                label += f'  ({os.path.basename(dta_files[i])})'
-            inputs.append({
-                'label': label,
-                'value': f'dektec:{card}:{port}',
-                'type': 'dektec',
-            })
-            port += 1
-            if port >= 4:
-                port = 0
-                card += 1
+        for card in range(4):
+            card_found = False
+            for port in range(8):
+                status, has_signal = _probe_dektec_port(card, port)
+                if status == 'absent':
+                    break  # no more ports on this card
+                card_found = True
+                label = f'DekTec card {card} port {port}'
+                if has_signal:
+                    label += ' — signal detected'
+                inputs.append({
+                    'label': label,
+                    'value': f'dektec:{card}:{port}',
+                    'type': 'dektec',
+                    'signal': has_signal,
+                })
+            if not card_found:
+                break  # no more cards
 
     if _device_available('decklink'):
         inputs.append({
             'label': 'Blackmagic DeckLink SDI',
             'value': 'decklink:DeckLink SDI',
             'type': 'decklink',
+            'signal': None,
         })
 
     v4l2 = _find_v4l2_device()
@@ -227,6 +259,7 @@ def list_inputs():
             'label': f'V4L2 {v4l2}',
             'value': v4l2,
             'type': 'v4l2',
+            'signal': None,
         })
 
     _inputs_cache = inputs

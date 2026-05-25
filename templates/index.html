@@ -235,10 +235,12 @@ function loadSdiInputs() {
                    class="form-check-input m-0"
                    ${currentSdiInput === inp.value ? 'checked' : ''}
                    onchange="onSdiSelect(this.value)">
-            <div>
+            <div style="flex:1">
               <div style="font-size:0.82rem;font-weight:600;color:#fff">${escHtml(inp.label)}</div>
               <div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace">${escHtml(inp.value)}</div>
             </div>
+            ${inp.signal === true  ? '<span class="pill pill-onair" style="font-size:0.68rem"><i class="bi bi-dot"></i>SIGNAL</span>' : ''}
+            ${inp.signal === false ? '<span class="pill pill-idle" style="font-size:0.68rem">NO SIGNAL</span>' : ''}
           </label>`).join('');
         // Highlight currently saved
         highlightSdiSelected();

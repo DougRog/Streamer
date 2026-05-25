@@ -368,10 +368,32 @@ class StreamManager:
 
     def _multicast_url(self, channel):
         url = (f'udp://{channel.multicast_addr}:{channel.multicast_port}'
-               f'?pkt_size=1316&ttl={MULTICAST_TTL}&reuse=1')
+               f'?pkt_size=1316&ttl={MULTICAST_TTL}&reuse=1&overrun_nonfatal=1')
         if MULTICAST_INTERFACE:
             url += f'&localaddr={MULTICAST_INTERFACE}'
         return url
+
+    def _mpegts_out_args(self, channel):
+        """
+        Stable MPEG-TS output args with fixed PIDs and periodic PAT/PMT.
+
+        Fixed PIDs ensure VLC doesn't lose the stream when FFmpeg restarts for
+        a content transition.  resend_headers re-injects PAT/PMT before every
+        discontinuity so VLC re-locks within one PAT period (~100 ms).
+
+          PID 0      — PAT  (fixed by MPEG-TS standard)
+          PID 4096   — PMT
+          PID 256    — video elementary stream
+          PID 257    — audio elementary stream (+ any data PIDs)
+        """
+        return [
+            '-f', 'mpegts',
+            '-mpegts_service_id', '1',
+            '-mpegts_pmt_start_pid', '4096',
+            '-mpegts_start_pid', '256',
+            '-mpegts_flags', 'resend_headers',
+            self._multicast_url(channel),
+        ]
 
     def _file_cmd(self, channel, asset_path, occurrence_start, duration,
                   loop=False, file_duration=None):
@@ -393,7 +415,7 @@ class StreamManager:
         # Map video, audio, optional data (SCTE-35)
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
         cmd += self._common_video_args(channel)
-        cmd += ['-f', 'mpegts', self._multicast_url(channel)]
+        cmd += self._mpegts_out_args(channel)
         return cmd
 
     def _live_cmd(self, channel, input_args):
@@ -402,7 +424,7 @@ class StreamManager:
         cmd += ['-copyts']
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
         cmd += self._common_video_args(channel)
-        cmd += ['-f', 'mpegts', self._multicast_url(channel)]
+        cmd += self._mpegts_out_args(channel)
         return cmd
 
     def _recording_cmd(self, input_args, out_path, channel=None):
@@ -413,7 +435,7 @@ class StreamManager:
             # Output 1: transcoded multicast (primary A/V + SCTE-35 data)
             cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
             cmd += self._common_video_args(channel)
-            cmd += ['-f', 'mpegts', self._multicast_url(channel)]
+            cmd += self._mpegts_out_args(channel)
             # Output 2: lossless MXF — all streams verbatim (CC, SCTE-35, VANC, all audio)
             cmd += ['-map', '0', '-c', 'copy', '-f', 'mxf', out_path]
         else:
@@ -428,7 +450,7 @@ class StreamManager:
         slate_path  = getattr(channel, 'slate_asset_path', '') or ''
 
         if slate_type == 'file' and slate_path:
-            return [
+            cmd = [
                 FFMPEG_PATH, '-hide_banner', '-loglevel', 'error',
                 '-stream_loop', '-1',
                 '-re', '-i', slate_path,
@@ -436,8 +458,9 @@ class StreamManager:
                 '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '500k',
                 '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac', '-b:a', '64k', '-ar', '48000',
-                '-f', 'mpegts', self._multicast_url(channel),
             ]
+            cmd += self._mpegts_out_args(channel)
+            return cmd
 
         # Default: black frame + 400 Hz tone
         cmd = [
@@ -455,8 +478,8 @@ class StreamManager:
             '-b:v', '500k',
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '64k', '-ar', '48000',
-            '-f', 'mpegts', self._multicast_url(channel),
         ]
+        cmd += self._mpegts_out_args(channel)
         return cmd
 
 
