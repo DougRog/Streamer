@@ -2,14 +2,15 @@ const channelModal = new bootstrap.Modal(document.getElementById('channelModal')
 
 function openCreateModal() {
   document.getElementById('channelModalTitle').textContent = 'New Channel';
-  document.getElementById('cf-id').value      = '';
-  document.getElementById('cf-name').value    = '';
-  document.getElementById('cf-addr').value    = '239.1.1.1';
-  document.getElementById('cf-port').value    = '5000';
-  document.getElementById('cf-bitrate').value = '6M';
-  document.getElementById('cf-slate').checked = true;
-  document.getElementById('cf-color').value   = '#6366f1';
-  document.getElementById('cf-notes').value   = '';
+  document.getElementById('cf-id').value           = '';
+  document.getElementById('cf-name').value         = '';
+  document.getElementById('cf-addr').value         = '239.1.1.1';
+  document.getElementById('cf-port').value         = '5000';
+  document.getElementById('cf-bitrate').value      = '6M';
+  document.getElementById('cf-slate').checked      = true;
+  document.getElementById('cf-color').value        = '#6366f1';
+  document.getElementById('cf-epg-filename').value = '';
+  document.getElementById('cf-notes').value        = '';
   document.querySelector('input[name=cf-slate-type][value=color]').checked = true;
   document.getElementById('cf-slate-path').value = '';
   toggleSlateOptions();
@@ -28,8 +29,9 @@ function editChannel(id) {
       document.getElementById('cf-port').value    = ch.multicast_port;
       document.getElementById('cf-bitrate').value = ch.video_bitrate || '6M';
       document.getElementById('cf-slate').checked = ch.slate_enabled;
-      document.getElementById('cf-color').value   = ch.color || '#6366f1';
-      document.getElementById('cf-notes').value   = ch.notes || '';
+      document.getElementById('cf-color').value        = ch.color || '#6366f1';
+      document.getElementById('cf-epg-filename').value = ch.epg_filename || '';
+      document.getElementById('cf-notes').value        = ch.notes || '';
 
       const slateType = ch.slate_type || 'color';
       document.querySelector(`input[name=cf-slate-type][value=${slateType}]`).checked = true;
@@ -77,6 +79,7 @@ function saveChannel() {
     slate_asset_path: slateType === 'file'
                         ? document.getElementById('cf-slate-path').value.trim() || null
                         : null,
+    epg_filename:     document.getElementById('cf-epg-filename').value.trim() || null,
     color:            document.getElementById('cf-color').value,
     notes:            document.getElementById('cf-notes').value.trim(),
   };

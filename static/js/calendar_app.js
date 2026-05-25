@@ -167,7 +167,7 @@ function openNewEventModal(dateStr, assetPath, assetDuration) {
   if (assetPath) {
     document.getElementById('f-asset-path').value = assetPath;
     if (assetDuration > 0)
-      document.getElementById('f-duration').value = Math.round(assetDuration);
+      document.getElementById('f-duration').value = secsToHMS(Math.round(assetDuration));
   }
 
   const ch = document.getElementById('channel-filter').value;
@@ -197,7 +197,8 @@ function openEditModal(fcEvent) {
   document.getElementById('f-title').value            = fcEvent.title;
   document.getElementById('f-channel').value          = ep.channelId;
   document.getElementById('f-start').value            = toInputValue(fcEvent.start);
-  document.getElementById('f-duration').value         = ep.duration;
+  document.getElementById('f-duration').value         = secsToHMS(ep.duration);
+  document.getElementById('f-rec-path').value         = ep.recordingPath || '';
   document.getElementById('f-asset-path').value       = ep.assetPath || '';
   document.getElementById('f-live-source').value      = ep.liveSource || 'dektec:0:0';
   document.getElementById('f-rrule').value            = ep.rrule || '';
@@ -242,8 +243,11 @@ function saveEvent() {
     live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
     start_time:   easternToISO(startVal),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
-                    ? 86400   // scheduler cuts the loop when the next event starts
-                    : parseInt(document.getElementById('f-duration').value),
+                    ? 3600    // nominal; scheduler runs it indefinitely until preempted
+                    : hmsToSecs(document.getElementById('f-duration').value),
+    recording_path: entryType === 'recording'
+                    ? (document.getElementById('f-rec-path').value.trim() || null)
+                    : null,
     rrule:        document.getElementById('f-rrule').value.trim() || null,
     color:        document.getElementById('f-color').value,
     notes:        document.getElementById('f-notes').value.trim(),
@@ -496,7 +500,7 @@ function renderAssetList(assets) {
 function selectAsset(path, dur) {
   document.getElementById('f-asset-path').value = path;
   if (dur > 0) {
-    document.getElementById('f-duration').value = Math.round(dur);
+    document.getElementById('f-duration').value = secsToHMS(Math.round(dur));
     updateDurationHint();
   }
   assetModal.hide();
@@ -549,11 +553,11 @@ function syncRruleChip(val) {
 
 function resetForm() {
   ['f-entry-id','f-occurrence-date','f-title','f-start',
-   'f-asset-path','f-live-source','f-rrule','f-notes'].forEach(id => {
+   'f-asset-path','f-live-source','f-rrule','f-notes','f-rec-path'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  document.getElementById('f-duration').value      = 3600;
+  document.getElementById('f-duration').value      = '1:00:00';
   document.getElementById('f-color').value         = '#6366f1';
   document.getElementById('f-loop-enabled').checked = false;
   toggleLoopHint();
@@ -570,6 +574,12 @@ function resetForm() {
 function toggleTypePanels(type) {
   document.getElementById('filePicker').classList.toggle('d-none', type !== 'file');
   document.getElementById('liveSource').classList.toggle('d-none', type === 'file');
+  document.getElementById('recordingPath').classList.toggle('d-none', type !== 'recording');
+  // Duration doesn't apply to loop files; still show it for recording/live
+  if (type !== 'file') {
+    document.getElementById('f-loop-enabled').checked = false;
+    toggleLoopHint();
+  }
 }
 
 function toggleLoopHint() {
@@ -597,17 +607,54 @@ function highlightScopeLabel(scope) {
   if (active) active.style.borderColor = 'var(--accent)';
 }
 
-function updateDurationHint() {
-  const sec = parseInt(document.getElementById('f-duration').value) || 0;
+function updateDurationHint() { /* no-op: duration now shown as H:MM:SS in the field */ }
+
+/** Convert seconds to "H:MM:SS" display string. */
+function secsToHMS(s) {
+  const sec = Math.max(0, Math.round(s || 0));
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  const parts = [];
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  if (s || !parts.length) parts.push(`${s}s`);
-  const hint = document.getElementById('duration-hint');
-  if (hint) hint.textContent = parts.join(' ');
+  const ss = sec % 60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+
+/** Parse "H:MM:SS", "M:SS", plain seconds, or plain number → integer seconds. */
+function hmsToSecs(str) {
+  const s = String(str || '').trim();
+  if (!s) return 0;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const parts = s.split(':').map(p => parseInt(p, 10) || 0);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return 0;
+}
+
+function validateAssetPath() {
+  const path = (document.getElementById('f-asset-path').value || '').trim();
+  const el   = document.getElementById('path-validation');
+  if (!path) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<i class="bi bi-arrow-repeat spin me-1"></i>Checking…';
+  el.style.color = 'var(--text-muted)';
+  fetch('/api/validate_path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.exists) {
+        el.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>File found';
+        el.style.color = 'var(--success)';
+      } else {
+        el.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>File not found on server';
+        el.style.color = 'var(--danger,#ef4444)';
+      }
+    })
+    .catch(() => {
+      el.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Validation failed';
+      el.style.color = 'var(--warning,#f59e0b)';
+    });
 }
 
 // ------------------------------------------------------------------ //

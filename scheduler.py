@@ -346,8 +346,10 @@ class PlayoutScheduler:
     def _launch(self, channel, entry, occ_start):
         if entry.entry_type == 'file':
             ok = self._sm.start_file_stream(channel, entry, occ_start)
-        elif entry.entry_type in ('live', 'recording'):
+        elif entry.entry_type == 'live':
             ok = self._sm.start_live_stream(channel, entry)
+        elif entry.entry_type == 'recording':
+            ok = self._sm.start_recording_stream(channel, entry)
         else:
             logger.error(f'Unknown entry_type: {entry.entry_type}')
             ok = False

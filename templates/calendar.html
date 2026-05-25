@@ -95,11 +95,8 @@
             </div>
             <div class="col-md-5" id="duration-col">
               <label class="form-label">Duration</label>
-              <div class="input-group">
-                <input type="number" class="form-control" id="f-duration" value="3600" min="1">
-                <span class="input-group-text" style="background:var(--bg-elevated);border-color:var(--border-md);color:var(--text-sub)">sec</span>
-              </div>
-              <div id="duration-hint" class="text-muted mt-1" style="font-size:0.72rem"></div>
+              <input type="text" class="form-control mono" id="f-duration"
+                     value="1:00:00" placeholder="H:MM:SS">
             </div>
             <div class="col-md-5 d-none" id="loop-duration-col">
               <label class="form-label">Duration</label>
@@ -153,11 +150,12 @@
               <label class="form-label">Asset path</label>
               <div class="input-group">
                 <input class="form-control mono" id="f-asset-path"
-                       placeholder="/mnt/MasterControlMedia/…">
-                <button class="btn btn-ghost" type="button" onclick="openAssetPicker()">
-                  <i class="bi bi-folder2-open"></i> Browse
+                       placeholder="/mnt/MasterControlMedia/filename.mxf">
+                <button class="btn btn-ghost" type="button" onclick="validateAssetPath()">
+                  <i class="bi bi-check-circle"></i> Validate
                 </button>
               </div>
+              <div id="path-validation" class="mt-1" style="font-size:0.78rem;display:none"></div>
               <div class="mt-2 d-flex align-items-center gap-2">
                 <div class="form-check form-switch mb-0">
                   <input class="form-check-input" type="checkbox" id="f-loop-enabled" role="switch"
@@ -170,9 +168,17 @@
               </div>
               <div id="loop-hint" class="mt-1" style="font-size:0.72rem;color:var(--text-muted);display:none">
                 <i class="bi bi-info-circle me-1"></i>
-                FFmpeg will repeat the file continuously. Set <strong>Duration</strong>
-                to the gap before your next scheduled item — the scheduler will cut the
-                loop automatically when new content starts.
+                FFmpeg will repeat the file continuously until the next scheduled event starts.
+              </div>
+            </div>
+
+            <!-- Recording destination (Record + Air only) -->
+            <div class="col-12 d-none" id="recordingPath">
+              <label class="form-label">Recording destination</label>
+              <input class="form-control mono" id="f-rec-path"
+                     placeholder="/home/lilly/Recordings/WZMQ6PM">
+              <div class="mt-1" style="font-size:0.72rem;color:var(--text-muted)">
+                <i class="bi bi-info-circle me-1"></i>.mxf appended automatically &middot; All VANC, CC, and SCTE-35 preserved
               </div>
             </div>
 

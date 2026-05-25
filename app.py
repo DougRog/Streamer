@@ -70,6 +70,8 @@ def create_app():
             'ALTER TABLE schedule_entries ADD COLUMN loop_enabled BOOLEAN NOT NULL DEFAULT 0',
             'ALTER TABLE channels ADD COLUMN slate_type VARCHAR(20) NOT NULL DEFAULT "color"',
             'ALTER TABLE channels ADD COLUMN slate_asset_path VARCHAR(500)',
+            'ALTER TABLE channels ADD COLUMN epg_filename VARCHAR(100)',
+            'ALTER TABLE schedule_entries ADD COLUMN recording_path VARCHAR(500)',
         ]:
             try:
                 db.session.execute(text(stmt))
@@ -142,6 +144,7 @@ def create_app():
             slate_enabled=data.get('slate_enabled', True),
             slate_type=data.get('slate_type', 'color'),
             slate_asset_path=data.get('slate_asset_path') or None,
+            epg_filename=data.get('epg_filename') or None,
             color=data.get('color', '#3788d8'),
             notes=data.get('notes', ''),
         )
@@ -162,9 +165,10 @@ def create_app():
         data = request.get_json(force=True)
         for field in ('name', 'multicast_addr', 'multicast_port',
                       'video_bitrate', 'slate_enabled', 'color', 'notes',
-                      'slate_type', 'slate_asset_path'):
+                      'slate_type', 'slate_asset_path', 'epg_filename'):
             if field in data:
-                setattr(ch, field, data[field] or None if field == 'slate_asset_path' else data[field])
+                null_if_empty = field in ('slate_asset_path', 'epg_filename')
+                setattr(ch, field, data[field] or None if null_if_empty else data[field])
         db.session.commit()
         return jsonify(ch.to_dict())
 
@@ -273,6 +277,7 @@ def create_app():
                 'rrule': entry.rrule or '',
                 'notes': entry.notes or '',
                 'loopEnabled': bool(entry.loop_enabled),
+                'recordingPath': entry.recording_path or '',
                 **extra_props,
             },
         }
@@ -399,6 +404,14 @@ def create_app():
     @app.route('/api/dektec/status', methods=['GET'])
     def api_dektec_status():
         return jsonify(dektec_status())
+
+    @app.route('/api/validate_path', methods=['POST'])
+    def api_validate_path():
+        data = request.get_json(force=True) or {}
+        path = (data.get('path') or '').strip()
+        if not path:
+            return jsonify({'exists': False})
+        return jsonify({'exists': os.path.isfile(path)})
 
     @app.route('/api/recording/start', methods=['POST'])
     def api_start_recording():
@@ -612,6 +625,8 @@ def create_app():
             entry.notes = data['notes']
         if 'loop_enabled' in data:
             entry.loop_enabled = bool(data['loop_enabled'])
+        if 'recording_path' in data:
+            entry.recording_path = (data['recording_path'] or '').strip() or None
 
         if not entry.title:
             raise ValueError('title is required')

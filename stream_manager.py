@@ -157,6 +157,26 @@ class StreamManager:
         return self._replace_channel_stream(channel.id, entry.id, cmd,
                                             f'Live: {entry.title}')
 
+    def start_recording_stream(self, channel, entry):
+        """Live SDI → transcode to multicast AND record all streams to MXF."""
+        from dektec_handler import get_ffmpeg_input_args
+        args = get_ffmpeg_input_args(entry.live_source)
+        if args is None:
+            logger.error('No live capture device available')
+            return False
+
+        rec_path = (getattr(entry, 'recording_path', None) or '').strip()
+        if not rec_path:
+            ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            rec_path = os.path.join(RECORDING_PATH, f'recording_{ts}')
+        if not rec_path.lower().endswith('.mxf'):
+            rec_path += '.mxf'
+
+        os.makedirs(os.path.dirname(os.path.abspath(rec_path)), exist_ok=True)
+        cmd = self._recording_cmd(args, rec_path, channel)
+        return self._replace_channel_stream(channel.id, entry.id, cmd,
+                                            f'RecordAir: {entry.title} → {rec_path}')
+
     def start_slate(self, channel):
         """Black+tone slate keeps the multicast stream alive when nothing is scheduled."""
         cmd = self._slate_cmd(channel)
@@ -326,16 +346,14 @@ class StreamManager:
         cmd += input_args
 
         if channel:
-            # Output 1: transcoded multicast
+            # Output 1: transcoded multicast (primary A/V + SCTE-35 data)
             cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
             cmd += self._common_video_args(channel)
             cmd += ['-f', 'mpegts', self._multicast_url(channel)]
-            # Output 2: lossless MXF record preserving SCTE-35
-            cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
-            cmd += ['-c:v', 'copy', '-c:a', 'copy', '-c:d', 'copy']
-            cmd += ['-f', 'mxf', out_path]
+            # Output 2: lossless MXF — all streams verbatim (CC, SCTE-35, VANC, all audio)
+            cmd += ['-map', '0', '-c', 'copy', '-f', 'mxf', out_path]
         else:
-            # Record only — copy everything verbatim
+            # Record only — all streams verbatim
             cmd += ['-map', '0', '-c', 'copy', '-f', 'mxf', out_path]
 
         return cmd

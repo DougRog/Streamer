@@ -17,6 +17,7 @@ class Channel(db.Model):
     slate_enabled = db.Column(db.Boolean, default=True)
     slate_type = db.Column(db.String(20), default='color')   # 'color' | 'file'
     slate_asset_path = db.Column(db.String(500))
+    epg_filename = db.Column(db.String(100))   # user-defined EPG filename stem (no extension)
     color = db.Column(db.String(20), default='#3788d8')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -39,6 +40,7 @@ class Channel(db.Model):
             'slate_enabled': self.slate_enabled,
             'slate_type': self.slate_type or 'color',
             'slate_asset_path': self.slate_asset_path or '',
+            'epg_filename': self.epg_filename or '',
             'color': self.color,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -55,6 +57,7 @@ class ScheduleEntry(db.Model):
     entry_type = db.Column(db.String(20), nullable=False, default='file')
     asset_path = db.Column(db.String(500))
     live_source = db.Column(db.String(100), default='dektec:0:0')
+    recording_path = db.Column(db.String(500))   # destination for Record+Air entries (no ext)
     start_time = db.Column(db.DateTime, nullable=False)
     duration = db.Column(db.Integer, nullable=False, default=3600)   # seconds
     # RRULE string, e.g. FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR
@@ -107,6 +110,7 @@ class ScheduleEntry(db.Model):
             'color': self.effective_color(),
             'notes': self.notes,
             'loop_enabled': bool(self.loop_enabled),
+            'recording_path': self.recording_path or '',
         }
 
 

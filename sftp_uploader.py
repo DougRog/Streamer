@@ -101,11 +101,13 @@ def upload_epg(app):
             ('epg.xml',      generate_xmltv(app, days=days)),
             ('playlist.m3u', generate_m3u(app)),
         ]
-        # Per-channel files
+        # Per-channel files — use user-defined epg_filename if set
         for ch in channels:
-            slug = ch.name.lower().replace(' ', '_')
-            files.append((f'ch{ch.id}_{slug}.xml', generate_xmltv(app, days=days, channel_id=ch.id)))
-            files.append((f'ch{ch.id}_{slug}.m3u', generate_m3u(app, channel_id=ch.id)))
+            stem = (ch.epg_filename or '').strip()
+            if not stem:
+                stem = ch.name.lower().replace(' ', '_')
+            files.append((f'{stem}.xml', generate_xmltv(app, days=days, channel_id=ch.id)))
+            files.append((f'{stem}.m3u', generate_m3u(app, channel_id=ch.id)))
 
         logger.info(f'EPG generation done ({len(files)} files) — uploading via SFTP…')
         transport, sftp = _connect(cfg)
