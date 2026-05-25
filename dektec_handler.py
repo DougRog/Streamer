@@ -2,41 +2,45 @@
 Dektec SDI input integration.
 
 Detection strategy (tried in order):
-  1. 'dektec' ffmpeg device  — requires ffmpeg built with DtAPI / dtavcinput
-  2. 'decklink' ffmpeg device — Blackmagic fallback if available
-  3. V4L2 /dev/videoN        — generic capture fallback
-  4. User-supplied URI        — from DEKTEC_INPUT_URI env var
+  1. DEKTEC_INPUT_URI config (e.g. 'dektec:0:0' or '0:0' or a serial:port)
+  2. Auto-detect 'dektec' device in the configured FFmpeg build
+  3. 'decklink' FFmpeg device — Blackmagic fallback
+  4. V4L2 /dev/videoN        — generic capture fallback
 
-The resolved input URI is cached after first detection so repeated calls
-are cheap.
+FFmpeg DekTec input form:  -f dektec -i <card_index_or_serial>:<port>
 """
 import subprocess
 import logging
 import os
-from config import DEKTEC_INPUT_URI, DEKTEC_FFMPEG_FORMAT
+from config import DEKTEC_INPUT_URI, DEKTEC_FFMPEG_FORMAT, FFMPEG_PATH
 
 logger = logging.getLogger(__name__)
 
-# Cached detection result: None = not checked, False = not found, str = URI
-_cached_input_uri = None
+# Cached detection result: None = not checked, False = not found
 _cached_format = None
+_cached_uri    = None
+_cache_ready   = False
 
 
-def _check_ffmpeg_device(fmt):
-    """Return True if ffmpeg lists 'fmt' as an available input device."""
+def _ffmpeg(*args, timeout=5):
+    """Run the configured FFmpeg binary and return combined stdout+stderr."""
     try:
-        result = subprocess.run(
-            ['ffmpeg', '-hide_banner', '-devices'],
-            capture_output=True, text=True, timeout=5
+        r = subprocess.run(
+            [FFMPEG_PATH] + list(args),
+            capture_output=True, text=True, timeout=timeout
         )
-        output = result.stdout + result.stderr
-        return fmt in output
+        return r.stdout + r.stderr
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+        return ''
+
+
+def _device_available(fmt):
+    """Return True if the configured FFmpeg build lists fmt as an input device."""
+    output = _ffmpeg('-hide_banner', '-devices')
+    return fmt in output
 
 
 def _find_v4l2_device():
-    """Return first available V4L2 device path, or None."""
     for i in range(8):
         dev = f'/dev/video{i}'
         if os.path.exists(dev):
@@ -46,90 +50,112 @@ def _find_v4l2_device():
 
 def detect_input():
     """
-    Auto-detect the best available capture source.
-    Returns (ffmpeg_format, input_uri) or (None, None).
+    Return (ffmpeg_format, input_uri) for the best available capture source.
+    ffmpeg_format may be None for stream URIs.
+    Results are cached after first call.
     """
-    global _cached_input_uri, _cached_format
+    global _cached_format, _cached_uri, _cache_ready
+    if _cache_ready:
+        return _cached_format, _cached_uri
 
-    if _cached_input_uri is not None:
-        return _cached_format, _cached_input_uri
+    # ------------------------------------------------------------------ #
+    # 1. DEKTEC_INPUT_URI config                                          #
+    # ------------------------------------------------------------------ #
+    uri = (DEKTEC_INPUT_URI or '').strip()
+    if uri:
+        # Stream URL (udp://, rtp://, etc.) — no device format needed
+        if uri.startswith(('udp://', 'rtp://', 'rtmp://', 'srt://')):
+            _cached_format, _cached_uri = None, uri
+            _cache_ready = True
+            logger.info(f'Using stream URI from config: {uri}')
+            return _cached_format, _cached_uri
 
-    # User-provided explicit URI always wins
-    if DEKTEC_INPUT_URI and ':' in DEKTEC_INPUT_URI:
-        # Looks like 'dektec:0:0' or 'udp://...'
-        if DEKTEC_INPUT_URI.startswith(('udp://', 'rtp://', 'rtmp://', 'srt://')):
-            _cached_format = None
-            _cached_input_uri = DEKTEC_INPUT_URI
-            return _cached_format, _cached_input_uri
+        # 'dektec:card:port' or 'dektec:serial:port'
+        if uri.lower().startswith('dektec:'):
+            card_port = uri[len('dektec:'):]   # e.g. '0:0' or '2215330929817:0'
+            _cached_format, _cached_uri = 'dektec', card_port
+            _cache_ready = True
+            logger.info(f'DekTec input from config: -f dektec -i {card_port}')
+            return _cached_format, _cached_uri
 
-    # Try Dektec FFmpeg device
-    if _check_ffmpeg_device('dektec'):
-        _cached_format = 'dektec'
-        _cached_input_uri = '0:0'   # card:port
-        logger.info('Dektec FFmpeg device detected')
-        return _cached_format, _cached_input_uri
+        # Bare 'card:port' (e.g. '0:0')
+        if ':' in uri and not uri.startswith('/'):
+            _cached_format, _cached_uri = DEKTEC_FFMPEG_FORMAT or 'dektec', uri
+            _cache_ready = True
+            logger.info(f'DekTec input from config (bare): -f {_cached_format} -i {uri}')
+            return _cached_format, _cached_uri
 
-    # Try Blackmagic DeckLink
-    if _check_ffmpeg_device('decklink'):
-        _cached_format = 'decklink'
-        _cached_input_uri = 'DeckLink SDI'
-        logger.info('DeckLink device detected as Dektec fallback')
-        return _cached_format, _cached_input_uri
+    # ------------------------------------------------------------------ #
+    # 2. Auto-detect via FFmpeg device list                               #
+    # ------------------------------------------------------------------ #
+    if _device_available('dektec'):
+        _cached_format, _cached_uri = 'dektec', '0:0'
+        _cache_ready = True
+        logger.info('DekTec FFmpeg device auto-detected')
+        return _cached_format, _cached_uri
 
-    # Try V4L2
-    v4l2_dev = _find_v4l2_device()
-    if v4l2_dev:
-        _cached_format = 'v4l2'
-        _cached_input_uri = v4l2_dev
-        logger.warning(f'Using V4L2 fallback: {v4l2_dev}')
-        return _cached_format, _cached_input_uri
+    if _device_available('decklink'):
+        _cached_format, _cached_uri = 'decklink', 'DeckLink SDI'
+        _cache_ready = True
+        logger.info('DeckLink device detected as DekTec fallback')
+        return _cached_format, _cached_uri
+
+    v4l2 = _find_v4l2_device()
+    if v4l2:
+        _cached_format, _cached_uri = 'v4l2', v4l2
+        _cache_ready = True
+        logger.warning(f'Using V4L2 fallback: {v4l2}')
+        return _cached_format, _cached_uri
 
     logger.warning('No live capture device found')
-    _cached_input_uri = False
+    _cached_format, _cached_uri = None, None
+    _cache_ready = True
     return None, None
-
-
-def get_dektec_input_uri(source_hint=None):
-    """
-    Return a URI string suitable for `ffmpeg -i URI`.
-    source_hint may be 'dektec:0:0', 'decklink:0', '/dev/video0', etc.
-    If None, auto-detect.
-    """
-    if source_hint:
-        # Already a full URI
-        if source_hint.startswith(('udp://', 'rtp://', 'rtmp://', 'srt://', '/')):
-            return source_hint
-        # 'dektec:card:port' style
-        if source_hint.startswith('dektec:'):
-            return source_hint.split(':', 1)[1]  # strip the 'dektec:' prefix
-
-    fmt, uri = detect_input()
-    return uri if uri else None
 
 
 def get_ffmpeg_input_args(source_hint=None):
     """
-    Return the list of FFmpeg args needed to open the live input.
-    e.g. ['-f', 'dektec', '-i', '0:0'] or ['-i', 'udp://...']
+    Return the list of FFmpeg args needed to open the live input, e.g.:
+      ['-f', 'dektec', '-i', '0:0']
+    source_hint overrides auto-detection when provided.
     """
-    if source_hint and source_hint.startswith(('udp://', 'rtp://', 'rtmp://', 'srt://')):
-        return ['-i', source_hint]
+    hint = (source_hint or '').strip()
 
+    # Stream URL passed directly
+    if hint.startswith(('udp://', 'rtp://', 'rtmp://', 'srt://')):
+        return ['-i', hint]
+
+    # Explicit 'dektec:card:port'
+    if hint.lower().startswith('dektec:'):
+        card_port = hint[len('dektec:'):]
+        return ['-f', 'dektec', '-i', card_port]
+
+    # Bare 'card:port' with optional format prefix stripped
+    if hint and ':' in hint and not hint.startswith('/'):
+        fmt = DEKTEC_FFMPEG_FORMAT or 'dektec'
+        return ['-f', fmt, '-i', hint]
+
+    # No usable hint — fall back to detection
     fmt, uri = detect_input()
-    if not fmt and not uri:
+    if not uri:
         return None
-
     if fmt:
         return ['-f', fmt, '-i', uri]
     return ['-i', uri]
 
 
-def status():
+def dektec_status():
     """Return a dict describing detected capture hardware."""
     fmt, uri = detect_input()
     return {
         'detected': bool(uri),
         'format': fmt,
-        'uri': uri if uri else None,
+        'uri': uri,
         'config_uri': DEKTEC_INPUT_URI,
+        'ffmpeg_path': FFMPEG_PATH,
     }
+
+
+# Keep old name for any callers that imported it directly
+def status():
+    return dektec_status()
