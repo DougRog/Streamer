@@ -54,6 +54,11 @@ MEDIA_SCAN_INTERVAL_HOURS  = int(os.environ.get('MEDIA_SCAN_INTERVAL_HOURS', '1'
 FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg-build/ffprobe')
 FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg-build/ffmpeg')
 
+# PID tracking file — records PIDs of FFmpeg processes owned by this app so
+# orphans from a previous run can be reaped on restart without touching
+# unrelated FFmpeg processes on the same machine.
+STREAMER_PID_FILE = os.environ.get('STREAMER_PID_FILE', '/tmp/streamer_ffmpeg.pids')
+
 # EPG / SFTP — env vars take priority; also configurable via Settings UI.
 # These become the seed values for the DB on first run.
 SFTP_HOST     = os.environ.get('SFTP_HOST', '')

@@ -23,9 +23,69 @@ from config import (
     DEFAULT_VIDEO_BITRATE, DEFAULT_AUDIO_BITRATE, DEFAULT_GOP_SIZE,
     DEFAULT_VIDEO_CODEC, DEFAULT_VIDEO_PRESET,
     MULTICAST_TTL, MULTICAST_INTERFACE, RECORDING_PATH, FFMPEG_PATH,
+    STREAMER_PID_FILE,
 )
 
 logger = logging.getLogger(__name__)
+
+_pid_file_lock = threading.Lock()
+
+
+def _pid_record(pid):
+    with _pid_file_lock:
+        try:
+            with open(STREAMER_PID_FILE, 'a') as f:
+                f.write(f'{pid}\n')
+        except OSError:
+            pass
+
+
+def _pid_forget(pid):
+    with _pid_file_lock:
+        try:
+            with open(STREAMER_PID_FILE, 'r') as f:
+                lines = f.readlines()
+            with open(STREAMER_PID_FILE, 'w') as f:
+                for line in lines:
+                    if line.strip() != str(pid):
+                        f.write(line)
+        except OSError:
+            pass
+
+
+def reap_orphans():
+    """Kill FFmpeg processes left over from a previous Streamer run.
+
+    Only PIDs recorded in STREAMER_PID_FILE are targeted, and each is
+    verified to still be running our specific FFmpeg binary before being
+    killed — so unrelated ffmpeg processes on the same host are never
+    touched.
+    """
+    with _pid_file_lock:
+        try:
+            with open(STREAMER_PID_FILE, 'r') as f:
+                pids = [int(l.strip()) for l in f if l.strip().isdigit()]
+        except FileNotFoundError:
+            return
+        finally:
+            try:
+                os.unlink(STREAMER_PID_FILE)
+            except OSError:
+                pass
+
+    for pid in pids:
+        try:
+            with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                cmdline = f.read().replace(b'\x00', b' ').decode('utf-8', errors='replace')
+            if FFMPEG_PATH not in cmdline:
+                continue
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                logger.info(f'Reaped orphan FFmpeg PID={pid}')
+            except (ProcessLookupError, OSError):
+                pass
+        except (FileNotFoundError, OSError):
+            pass  # already gone
 
 
 def _bitrate_val(bitrate_str):
@@ -62,6 +122,7 @@ class StreamProcess:
                 preexec_fn=os.setsid,
             )
             self.started_at = datetime.utcnow()
+            _pid_record(self.process.pid)
             threading.Thread(target=self._tail_stderr, daemon=True).start()
             logger.info(
                 f'[ch{self.channel_id}] FFmpeg PID={self.process.pid} "{self.description}"'
@@ -74,15 +135,18 @@ class StreamProcess:
     def stop(self):
         if not (self.process and self.process.poll() is None):
             return
+        pid = self.process.pid
         try:
-            os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
             try:
                 self.process.wait(timeout=6)
             except subprocess.TimeoutExpired:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
-            logger.info(f'[ch{self.channel_id}] FFmpeg PID={self.process.pid} stopped')
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            logger.info(f'[ch{self.channel_id}] FFmpeg PID={pid} stopped')
         except (ProcessLookupError, PermissionError, OSError) as e:
             logger.debug(f'stop error: {e}')
+        finally:
+            _pid_forget(pid)
 
     def is_running(self):
         return self.process is not None and self.process.poll() is None
@@ -125,6 +189,7 @@ class StreamManager:
 
     def init_app(self, app):
         self._app = app
+        reap_orphans()
 
     # ------------------------------------------------------------------ #
     #  Channel streams                                                     #
