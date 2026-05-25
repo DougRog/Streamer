@@ -9,9 +9,11 @@ Detection strategy (tried in order):
 
 FFmpeg DekTec input form:  -f dektec -i <card_index_or_serial>:<port>
 """
+import glob
 import subprocess
 import logging
 import os
+import time
 from config import DEKTEC_INPUT_URI, DEKTEC_FFMPEG_FORMAT, FFMPEG_PATH
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,20 @@ logger = logging.getLogger(__name__)
 _cached_format = None
 _cached_uri    = None
 _cache_ready   = False
+
+# Cached input list (re-scanned at most once per 60 s)
+_inputs_cache      = None
+_inputs_cache_time = 0.0
+
+
+def reset_cache():
+    """Invalidate all cached detection results (call after user changes input)."""
+    global _cached_format, _cached_uri, _cache_ready, _inputs_cache, _inputs_cache_time
+    _cached_format = None
+    _cached_uri    = None
+    _cache_ready   = False
+    _inputs_cache  = None
+    _inputs_cache_time = 0.0
 
 
 def _ffmpeg(*args, timeout=5):
@@ -159,3 +175,60 @@ def dektec_status():
 # Keep old name for any callers that imported it directly
 def status():
     return dektec_status()
+
+
+def list_inputs():
+    """
+    Return a list of detected SDI/capture input candidates, cached for 60 s.
+    Each entry: {'label': str, 'value': str, 'type': str}
+    """
+    global _inputs_cache, _inputs_cache_time
+
+    if _inputs_cache is not None and (time.time() - _inputs_cache_time) < 60:
+        return _inputs_cache
+
+    inputs = []
+
+    if _device_available('dektec'):
+        # Count DekTec ports from driver device files created by the Linux kernel module.
+        # The DekTec driver creates /dev/Dta-N (1-based) for each port it exposes.
+        dta_files = sorted(set(
+            glob.glob('/dev/Dta-[0-9]*') +
+            glob.glob('/dev/Dta[0-9]*')
+        ))
+
+        port_count = len(dta_files) if dta_files else 1
+
+        card, port = 0, 0
+        for i in range(port_count):
+            label = f'DekTec card {card} port {port}'
+            if i < len(dta_files):
+                label += f'  ({os.path.basename(dta_files[i])})'
+            inputs.append({
+                'label': label,
+                'value': f'dektec:{card}:{port}',
+                'type': 'dektec',
+            })
+            port += 1
+            if port >= 4:
+                port = 0
+                card += 1
+
+    if _device_available('decklink'):
+        inputs.append({
+            'label': 'Blackmagic DeckLink SDI',
+            'value': 'decklink:DeckLink SDI',
+            'type': 'decklink',
+        })
+
+    v4l2 = _find_v4l2_device()
+    if v4l2:
+        inputs.append({
+            'label': f'V4L2 {v4l2}',
+            'value': v4l2,
+            'type': 'v4l2',
+        })
+
+    _inputs_cache = inputs
+    _inputs_cache_time = time.time()
+    return inputs

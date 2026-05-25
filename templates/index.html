@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard – Streamer MCR{% endblock %}
+{% block title %}Dashboard – Streamer{% endblock %}
 
 {% block content %}
 
@@ -12,16 +12,12 @@
     <p class="page-sub mb-0">Live channel status and playout control</p>
   </div>
 
-  <!-- Dektec / recording controls -->
+  <!-- Recording controls -->
   <div class="d-flex align-items-center gap-2 flex-wrap">
-    {% if dektec.detected %}
-      <span class="pill pill-live">
-        <i class="bi bi-broadcast"></i>
-        SDI {{ dektec.format }}:{{ dektec.uri }}
-      </span>
-    {% else %}
-      <span class="pill pill-idle"><i class="bi bi-x-circle"></i> No SDI detected</span>
-    {% endif %}
+    <span class="pill {% if dektec_input %}pill-live{% else %}pill-idle{% endif %}" id="sdi-status-pill">
+      <i class="bi bi-{% if dektec_input %}broadcast{% else %}x-circle{% endif %}"></i>
+      {% if dektec_input %}{{ dektec_input }}{% else %}No SDI configured{% endif %}
+    </span>
     <button class="btn btn-sm btn-danger-soft" id="btn-rec-start" onclick="startRecording()">
       <i class="bi bi-record-circle"></i> Record Live
     </button>
@@ -105,6 +101,36 @@
 {% endif %}
 
 <!-- ====================================================== -->
+<!--  SDI Input                                             -->
+<!-- ====================================================== -->
+<div class="card mb-4" id="sdi-card">
+  <div class="card-header">
+    <span><i class="bi bi-camera-video me-2"></i>SDI Input</span>
+    <span id="sdi-scan-badge" class="pill pill-idle" style="font-size:0.75rem">
+      <i class="bi bi-arrow-repeat spin"></i> Scanning…
+    </span>
+  </div>
+  <div class="card-body py-3">
+    <div id="sdi-input-list" class="mb-3"></div>
+    <div class="row g-2 align-items-end">
+      <div class="col">
+        <label class="form-label text-sub" style="font-size:0.8rem">
+          Source string
+          <span class="text-muted" style="font-weight:400"> — dektec:card:port, serial:port, udp://…, etc.</span>
+        </label>
+        <input class="form-control mono form-control-sm" id="sdi-custom"
+               placeholder="dektec:0:0" value="{{ dektec_input | e }}">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm" onclick="saveSdiInput()">
+          <i class="bi bi-floppy"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================================================== -->
 <!--  EPG status panel                                      -->
 <!-- ====================================================== -->
 <div class="card mb-4" id="epg-panel">
@@ -180,6 +206,7 @@
 {% block scripts %}
 <script>
 const channelIds = {{ channels | map(attribute='id') | list | tojson }};
+let currentSdiInput = {{ dektec_input | tojson }};
 
 function toggleChannel(id, start) {
   const ep = start ? `/api/channels/${id}/start` : `/api/channels/${id}/stop`;
@@ -188,10 +215,88 @@ function toggleChannel(id, start) {
     .then(() => location.reload());
 }
 
+// ---- SDI input ----
+function loadSdiInputs() {
+  fetch('/api/dektec/inputs')
+    .then(r => r.json())
+    .then(data => {
+      const list  = document.getElementById('sdi-input-list');
+      const badge = document.getElementById('sdi-scan-badge');
+      const inputs = data.inputs || [];
+
+      if (inputs.length) {
+        badge.className = 'pill pill-live';
+        badge.innerHTML = `<i class="bi bi-check-circle"></i> ${inputs.length} input${inputs.length !== 1 ? 's' : ''} detected`;
+        list.innerHTML = inputs.map(inp => `
+          <label class="d-flex align-items-center gap-2 p-2 mb-1 rounded sdi-opt"
+                 style="border:1px solid var(--border-md);cursor:pointer;transition:border-color .15s"
+                 data-val="${escHtml(inp.value)}">
+            <input type="radio" name="sdi-select" value="${escHtml(inp.value)}"
+                   class="form-check-input m-0"
+                   ${currentSdiInput === inp.value ? 'checked' : ''}
+                   onchange="onSdiSelect(this.value)">
+            <div>
+              <div style="font-size:0.82rem;font-weight:600;color:#fff">${escHtml(inp.label)}</div>
+              <div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace">${escHtml(inp.value)}</div>
+            </div>
+          </label>`).join('');
+        // Highlight currently saved
+        highlightSdiSelected();
+      } else {
+        badge.className = 'pill pill-idle';
+        badge.innerHTML = '<i class="bi bi-x-circle"></i> None detected';
+        list.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No SDI hardware detected — enter a custom source below.</div>';
+      }
+    })
+    .catch(() => {
+      document.getElementById('sdi-scan-badge').className = 'pill pill-idle';
+      document.getElementById('sdi-scan-badge').innerHTML = '<i class="bi bi-x-circle"></i> Scan failed';
+    });
+}
+
+function highlightSdiSelected() {
+  const cur = document.getElementById('sdi-custom').value.trim() || currentSdiInput;
+  document.querySelectorAll('.sdi-opt').forEach(el => {
+    el.style.borderColor = el.dataset.val === cur ? 'var(--accent)' : '';
+  });
+}
+
+function onSdiSelect(value) {
+  document.getElementById('sdi-custom').value = value;
+  highlightSdiSelected();
+}
+
+function saveSdiInput() {
+  const value = document.getElementById('sdi-custom').value.trim();
+  if (!value) { showToast('Enter a source value', 'warning'); return; }
+  fetch('/api/dektec/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({value}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      currentSdiInput = value;
+      highlightSdiSelected();
+      // Update status pill
+      const pill = document.getElementById('sdi-status-pill');
+      pill.className = 'pill pill-live';
+      pill.innerHTML = `<i class="bi bi-broadcast"></i> ${escHtml(value)}`;
+      showToast('SDI input saved', 'success');
+    } else {
+      showToast('Save failed: ' + (d.error || '?'), 'danger');
+    }
+  });
+}
+
+loadSdiInputs();
+
 function startRecording() {
+  const source = document.getElementById('sdi-custom').value.trim() || currentSdiInput || 'dektec:0:0';
   fetch('/api/recording/start', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({live_source:'dektec:0:0'})
+    body: JSON.stringify({live_source: source})
   }).then(r=>r.json()).then(d => {
     if (d.ok) {
       document.getElementById('btn-rec-start').disabled = true;

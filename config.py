@@ -47,10 +47,6 @@ SCHEDULE_TIMEZONE = os.environ.get('SCHEDULE_TIMEZONE', 'America/New_York')
 SCTE35_PID = 500
 SCTE35_LOG_EVENTS = True
 
-# Media scanning
-MEDIA_EXTENSIONS           = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
-SCAN_WORKER_THREADS        = 4
-MEDIA_SCAN_INTERVAL_HOURS  = int(os.environ.get('MEDIA_SCAN_INTERVAL_HOURS', '1'))
 FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg-build/ffprobe')
 FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg-build/ffmpeg')
 
@@ -69,5 +65,5 @@ SFTP_PATH     = os.environ.get('SFTP_PATH', '/')
 
 EPG_WINDOW_DAYS      = int(os.environ.get('EPG_WINDOW_DAYS', '7'))
 EPG_INTERVAL_MINUTES = int(os.environ.get('EPG_INTERVAL_MINUTES', '30'))
-EPG_SOURCE_NAME      = os.environ.get('EPG_SOURCE_NAME', 'Streamer MCR')
+EPG_SOURCE_NAME      = os.environ.get('EPG_SOURCE_NAME', 'Streamer')
 EPG_PUBLIC_URL       = os.environ.get('EPG_PUBLIC_URL', '')

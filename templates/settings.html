@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Settings – Streamer MCR{% endblock %}
+{% block title %}Settings – Streamer{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -99,7 +99,7 @@
         <div class="mb-3">
           <label class="form-label text-sub">Source / Station Name</label>
           <input type="text" class="form-control" id="epg-source"
-                 placeholder="Streamer MCR"
+                 placeholder="Streamer"
                  value="{{ settings.get('epg.source_name','') }}">
           <div class="form-text text-muted">Appears in XMLTV and M3U as the provider name.</div>
         </div>

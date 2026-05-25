@@ -198,13 +198,12 @@ class StreamManager:
     def start_file_stream(self, channel, entry, occurrence_start):
         loop = bool(getattr(entry, 'loop_enabled', False))
         file_dur = None
-        if loop and entry.asset_path and self._app:
+        if loop and entry.asset_path:
             try:
-                with self._app.app_context():
-                    from models import MediaAsset
-                    asset = MediaAsset.query.filter_by(path=entry.asset_path).first()
-                    if asset and asset.duration_seconds:
-                        file_dur = asset.duration_seconds
+                from media_pool import probe_file, _extract_asset_info
+                probe_data = probe_file(entry.asset_path)
+                if probe_data:
+                    file_dur = _extract_asset_info(entry.asset_path, probe_data).get('duration_seconds')
             except Exception:
                 pass
         cmd = self._file_cmd(channel, entry.asset_path, occurrence_start,

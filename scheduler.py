@@ -15,8 +15,7 @@ from datetime import datetime, timedelta, date
 from dateutil import rrule as rrulelib
 from dateutil import tz as tzlib
 
-from config import (SCHEDULER_INTERVAL, PRETRANSITION_SECONDS,
-                   SCHEDULE_TIMEZONE, MEDIA_SCAN_INTERVAL_HOURS)
+from config import (SCHEDULER_INTERVAL, PRETRANSITION_SECONDS, SCHEDULE_TIMEZONE)
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +233,6 @@ class PlayoutScheduler:
         self._thread = None
         self._playing: dict = {}
         self._last_epg_upload = None    # datetime of last successful EPG push
-        self._last_media_scan = None    # datetime of last auto media scan
         self._slate_last_attempt: dict = {}    # channel_id → last slate start time
         self._content_last_attempt: dict = {}  # channel_id → last content start time
 
@@ -253,24 +251,8 @@ class PlayoutScheduler:
             try:
                 self._tick()
                 self._epg_tick()
-                self._media_scan_tick()
             except Exception as e:
                 logger.exception(f'Scheduler tick error: {e}')
-
-    def _media_scan_tick(self):
-        """Trigger a background media scan once per MEDIA_SCAN_INTERVAL_HOURS."""
-        if MEDIA_SCAN_INTERVAL_HOURS <= 0:
-            return
-        now = datetime.utcnow()
-        if (self._last_media_scan is None or
-                (now - self._last_media_scan).total_seconds()
-                >= MEDIA_SCAN_INTERVAL_HOURS * 3600):
-            logger.info('Auto media scan starting…')
-            from media_pool import scan_pool
-            ok, msg = scan_pool(self._app)
-            self._last_media_scan = now
-            if not ok:
-                logger.warning(f'Auto media scan: {msg}')
 
     def _epg_tick(self):
         """Upload EPG if the configured interval has elapsed."""

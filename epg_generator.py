@@ -37,12 +37,12 @@ def generate_xmltv(app, days=7, channel_id=None):
     with app.app_context():
         from models import Channel, ScheduleEntry, AppSetting
 
-        source_name = AppSetting.get('epg.source_name', 'Streamer MCR')
+        source_name = AppSetting.get('epg.source_name', 'Streamer')
         now = datetime.utcnow()
         end = now + timedelta(days=days)
 
         root = ET.Element('tv')
-        root.set('generator-info-name', 'Streamer MCR')
+        root.set('generator-info-name', 'Streamer')
         root.set('source-info-name', source_name)
 
         q = Channel.query.order_by(Channel.name)
@@ -124,7 +124,7 @@ def generate_m3u(app, channel_id=None):
         from models import Channel, AppSetting
 
         epg_url     = AppSetting.get('epg.public_url', '')
-        source_name = AppSetting.get('epg.source_name', 'Streamer MCR')
+        source_name = AppSetting.get('epg.source_name', 'Streamer')
 
         q = Channel.query.order_by(Channel.name)
         if channel_id:

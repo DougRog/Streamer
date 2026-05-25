@@ -9,10 +9,9 @@ from flask_sqlalchemy import SQLAlchemy
 from dateutil import tz as tzlib
 
 import config
-from models import db, Channel, ScheduleEntry, MediaAsset, SCTEEvent, AppSetting
+from models import db, Channel, ScheduleEntry, SCTEEvent, AppSetting
 from stream_manager import stream_manager
-from media_pool import scan_pool, scan_status
-from dektec_handler import status as dektec_status
+from dektec_handler import dektec_status, list_inputs as list_dektec_inputs, reset_cache as reset_dektec_cache
 from scheduler import (init_scheduler, expand_occurrences,
                        get_current_item, get_next_item, _sched_date)
 import sftp_uploader
@@ -61,7 +60,6 @@ def create_app():
 
     with app.app_context():
         db.create_all()
-        os.makedirs(config.MEDIA_POOL_PATH, exist_ok=True)
         os.makedirs(config.RECORDING_PATH, exist_ok=True)
         _seed_settings(app)
         # Schema migrations for columns added after initial deploy
@@ -92,33 +90,25 @@ def create_app():
             recent_scte = SCTEEvent.query.order_by(
                 SCTEEvent.detected_at.desc()
             ).limit(20).all()
+        saved_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or ''
         return render_template(
             'index.html',
             channels=channels,
             stream_manager=stream_manager,
             recent_scte=recent_scte,
-            dektec=dektec_status(),
+            dektec_input=saved_sdi,
         )
 
     @app.route('/calendar')
     def calendar():
         channels = Channel.query.order_by(Channel.name).all()
-        return render_template('calendar.html', channels=channels)
+        saved_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
+        return render_template('calendar.html', channels=channels, dektec_input=saved_sdi)
 
     @app.route('/channels')
     def channels():
         channels = Channel.query.order_by(Channel.name).all()
         return render_template('channels.html', channels=channels)
-
-    @app.route('/library')
-    def library():
-        assets = MediaAsset.query.order_by(MediaAsset.filename).all()
-        return render_template(
-            'library.html',
-            assets=assets,
-            scan=scan_status(),
-            pool_path=config.MEDIA_POOL_PATH,
-        )
 
     # ------------------------------------------------------------------ #
     #  Channel API                                                         #
@@ -372,32 +362,6 @@ def create_app():
         return jsonify(override.to_dict()), 201
 
     # ------------------------------------------------------------------ #
-    #  Assets API                                                          #
-    # ------------------------------------------------------------------ #
-
-    @app.route('/api/assets', methods=['GET'])
-    def api_list_assets():
-        q = request.args.get('q', '').strip()
-        query = MediaAsset.query
-        if q:
-            query = query.filter(MediaAsset.filename.ilike(f'%{q}%'))
-        assets = query.order_by(MediaAsset.filename).all()
-        return jsonify([a.to_dict() for a in assets])
-
-    @app.route('/api/assets/scan', methods=['POST'])
-    def api_scan_assets():
-        ok, msg = scan_pool(app)
-        return jsonify({'ok': ok, 'message': msg})
-
-    @app.route('/api/assets/scan/status', methods=['GET'])
-    def api_scan_status():
-        return jsonify(scan_status())
-
-    @app.route('/api/assets/<int:aid>', methods=['GET'])
-    def api_get_asset(aid):
-        return jsonify(MediaAsset.query.get_or_404(aid).to_dict())
-
-    # ------------------------------------------------------------------ #
     #  Dektec / Live / Recording API                                       #
     # ------------------------------------------------------------------ #
 
@@ -405,18 +369,45 @@ def create_app():
     def api_dektec_status():
         return jsonify(dektec_status())
 
+    @app.route('/api/dektec/inputs', methods=['GET'])
+    def api_dektec_inputs():
+        inputs = list_dektec_inputs()
+        saved = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or ''
+        return jsonify({'inputs': inputs, 'saved': saved})
+
+    @app.route('/api/dektec/input', methods=['POST'])
+    def api_dektec_input():
+        data = request.get_json(force=True) or {}
+        value = (data.get('value') or '').strip()
+        if not value:
+            return jsonify({'error': 'value required'}), 400
+        AppSetting.set('dektec.input', value)
+        reset_dektec_cache()
+        return jsonify({'ok': True})
+
     @app.route('/api/validate_path', methods=['POST'])
     def api_validate_path():
         data = request.get_json(force=True) or {}
         path = (data.get('path') or '').strip()
         if not path:
             return jsonify({'exists': False})
-        return jsonify({'exists': os.path.isfile(path)})
+        if not os.path.isfile(path):
+            return jsonify({'exists': False})
+        from media_pool import probe_file, _extract_asset_info
+        try:
+            probe_data = probe_file(path)
+            if probe_data:
+                info = _extract_asset_info(path, probe_data)
+                return jsonify({'exists': True, **info})
+        except Exception:
+            pass
+        return jsonify({'exists': True})
 
     @app.route('/api/recording/start', methods=['POST'])
     def api_start_recording():
         data = request.get_json(force=True) or {}
-        source = data.get('live_source', 'dektec:0:0')
+        default_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
+        source = data.get('live_source') or default_sdi
         channel_id = data.get('channel_id')
         channel = db.session.get(Channel, channel_id) if channel_id else None
         ok, result = stream_manager.start_recording(source, channel)

@@ -1,26 +1,21 @@
 /* ================================================================== */
-/*  Streamer MCR — FullCalendar 6 schedule application               */
+/*  Streamer — FullCalendar 6 schedule application                   */
 /* ================================================================== */
 
 let calendar;
-let currentEvent   = null;
-let allAssets      = [];
+let currentEvent = null;
 
-const eventModal      = new bootstrap.Modal(document.getElementById('eventModal'));
-const assetModal      = new bootstrap.Modal(document.getElementById('assetModal'));
-const repeatDayModal  = new bootstrap.Modal(document.getElementById('repeatDayModal'));
+const eventModal     = new bootstrap.Modal(document.getElementById('eventModal'));
+const repeatDayModal = new bootstrap.Modal(document.getElementById('repeatDayModal'));
 
 // ------------------------------------------------------------------ //
 //  Calendar init                                                      //
 // ------------------------------------------------------------------ //
 document.addEventListener('DOMContentLoaded', () => {
-  // Pre-select channel from ?channel=N or ?asset=path
+  // Pre-select channel from ?channel=N
   const params = new URLSearchParams(location.search);
   const urlCh = params.get('channel');
   if (urlCh) document.getElementById('channel-filter').value = urlCh;
-
-  // If arriving from library with ?asset=, pre-fill the event form
-  const urlAsset = params.get('asset');
 
   calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
     initialView:   'timeGridWeek',
@@ -101,18 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   calendar.render();
-
-  // Fetch assets for the picker
-  fetch('/api/assets')
-    .then(r => r.json())
-    .then(d => {
-      allAssets = d;
-      // If arriving from library, open new event modal with asset pre-filled
-      if (urlAsset) {
-        const asset = allAssets.find(a => a.path === urlAsset);
-        openNewEventModal(null, urlAsset, asset?.duration_seconds || 0);
-      }
-    });
 
   // Duration → human-readable hint
   document.getElementById('f-duration').addEventListener('input', updateDurationHint);
@@ -200,7 +183,7 @@ function openEditModal(fcEvent) {
   document.getElementById('f-duration').value         = secsToHMS(ep.duration);
   document.getElementById('f-rec-path').value         = ep.recordingPath || '';
   document.getElementById('f-asset-path').value       = ep.assetPath || '';
-  document.getElementById('f-live-source').value      = ep.liveSource || 'dektec:0:0';
+  document.getElementById('f-live-source').value      = ep.liveSource || DEKTEC_INPUT || 'dektec:0:0';
   document.getElementById('f-rrule').value            = ep.rrule || '';
   document.getElementById('f-notes').value            = ep.notes || '';
   document.getElementById('f-color').value            = fcEvent.backgroundColor || '#6366f1';
@@ -240,7 +223,7 @@ function saveEvent() {
     title:        document.getElementById('f-title').value.trim(),
     entry_type:   entryType,
     asset_path:   document.getElementById('f-asset-path').value.trim() || null,
-    live_source:  document.getElementById('f-live-source').value.trim() || 'dektec:0:0',
+    live_source:  document.getElementById('f-live-source').value.trim() || DEKTEC_INPUT || 'dektec:0:0',
     start_time:   easternToISO(startVal),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
                     ? 3600    // nominal; scheduler runs it indefinitely until preempted
@@ -452,59 +435,6 @@ function applyRepeatDay() {
     .catch(() => showToast('Network error', 'danger'));
 }
 
-// ------------------------------------------------------------------ //
-//  Asset picker                                                       //
-// ------------------------------------------------------------------ //
-function openAssetPicker() {
-  const searchEl = document.getElementById('asset-search');
-  if (searchEl) searchEl.value = '';
-  document.getElementById('asset-list').innerHTML =
-    '<div class="text-center text-muted py-4"><i class="bi bi-arrow-repeat spin me-1"></i>Loading…</div>';
-  assetModal.show();
-  fetch('/api/assets')
-    .then(r => r.json())
-    .then(d => { allAssets = d; filterAssets(); })
-    .catch(() => {
-      document.getElementById('asset-list').innerHTML =
-        '<div class="text-center text-muted py-4">Failed to load media library.</div>';
-    });
-}
-
-function filterAssets() {
-  const q = document.getElementById('asset-search').value.toLowerCase();
-  renderAssetList(allAssets.filter(a => a.filename.toLowerCase().includes(q)));
-}
-
-function renderAssetList(assets) {
-  if (!assets.length) {
-    document.getElementById('asset-list').innerHTML =
-      '<div class="text-center text-muted py-4">No files found.</div>';
-    return;
-  }
-  const rows = assets.map(a => `
-    <div class="repeat-preview-item" style="cursor:pointer"
-         onclick="selectAsset('${escHtml(a.path)}', ${a.duration_seconds || 0})">
-      <i class="bi bi-file-earmark-play text-muted"></i>
-      <div style="flex:1;overflow:hidden">
-        <div style="font-size:0.82rem;color:#fff;white-space:nowrap;
-                    overflow:hidden;text-overflow:ellipsis">${escHtml(a.filename)}</div>
-        <div class="text-muted" style="font-size:0.7rem">${a.path}</div>
-      </div>
-      <span class="text-sub" style="font-size:0.78rem;white-space:nowrap">${a.duration}</span>
-      ${a.has_scte ? '<span class="pill pill-scte ms-1">SCTE</span>' : ''}
-      ${a.video_width ? `<span class="text-muted" style="font-size:0.72rem">${a.video_width}×${a.video_height}</span>` : ''}
-    </div>`).join('');
-  document.getElementById('asset-list').innerHTML = rows;
-}
-
-function selectAsset(path, dur) {
-  document.getElementById('f-asset-path').value = path;
-  if (dur > 0) {
-    document.getElementById('f-duration').value = secsToHMS(Math.round(dur));
-    updateDurationHint();
-  }
-  assetModal.hide();
-}
 
 // ------------------------------------------------------------------ //
 //  Helpers — API                                                      //
@@ -553,10 +483,11 @@ function syncRruleChip(val) {
 
 function resetForm() {
   ['f-entry-id','f-occurrence-date','f-title','f-start',
-   'f-asset-path','f-live-source','f-rrule','f-notes','f-rec-path'].forEach(id => {
+   'f-asset-path','f-rrule','f-notes','f-rec-path'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  document.getElementById('f-live-source').value = DEKTEC_INPUT || 'dektec:0:0';
   document.getElementById('f-duration').value      = '1:00:00';
   document.getElementById('f-color').value         = '#6366f1';
   document.getElementById('f-loop-enabled').checked = false;
@@ -643,13 +574,31 @@ function validateAssetPath() {
   })
     .then(r => r.json())
     .then(d => {
-      if (d.exists) {
-        el.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>File found';
-        el.style.color = 'var(--success)';
-      } else {
+      if (!d.exists) {
         el.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>File not found on server';
         el.style.color = 'var(--danger,#ef4444)';
+        return;
       }
+      el.style.color = 'var(--success)';
+      let html = '<i class="bi bi-check-circle-fill me-1"></i>File found';
+      const parts = [];
+      if (d.video_codec)  parts.push(d.video_codec.toUpperCase());
+      if (d.video_width && d.video_height) parts.push(`${d.video_width}×${d.video_height}`);
+      if (d.video_fps)    parts.push(`${parseFloat(d.video_fps).toFixed(2)} fps`);
+      if (d.audio_codec)  parts.push(d.audio_codec.toUpperCase());
+      if (d.has_scte)     parts.push('SCTE-35');
+      if (parts.length)
+        html += ` <span class="text-muted" style="font-size:0.78rem">— ${parts.join(' · ')}</span>`;
+      if (d.duration_seconds) {
+        const hms = secsToHMS(Math.round(d.duration_seconds));
+        html += ` <button type="button" class="btn btn-xs btn-ghost ms-2"
+                          onclick="document.getElementById('f-duration').value='${hms}';
+                                   this.textContent='✓ Applied'"
+                          style="font-size:0.72rem;padding:1px 6px">
+                    Use ${hms}
+                  </button>`;
+      }
+      el.innerHTML = html;
     })
     .catch(() => {
       el.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Validation failed';
