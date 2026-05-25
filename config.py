@@ -22,7 +22,7 @@ DEFAULT_GOP_SIZE = 120              # 2 seconds at 59.94fps
 # Set DEFAULT_VIDEO_PRESET to '' to disable -preset (needed for hardware encoders
 # or custom builds without libx264 preset support).
 DEFAULT_VIDEO_CODEC  = os.environ.get('DEFAULT_VIDEO_CODEC',  'libx264')
-DEFAULT_VIDEO_PRESET = os.environ.get('DEFAULT_VIDEO_PRESET', '')
+DEFAULT_VIDEO_PRESET = os.environ.get('DEFAULT_VIDEO_PRESET', 'fast')
 
 # Multicast
 MULTICAST_TTL       = int(os.environ.get('MULTICAST_TTL', '4'))
@@ -51,8 +51,8 @@ SCTE35_LOG_EVENTS = True
 MEDIA_EXTENSIONS           = {'.mxf', '.mp4', '.mov', '.mts', '.m2ts', '.ts'}
 SCAN_WORKER_THREADS        = 4
 MEDIA_SCAN_INTERVAL_HOURS  = int(os.environ.get('MEDIA_SCAN_INTERVAL_HOURS', '1'))
-FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg/ffprobe')
-FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg/ffmpeg')
+FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/home/lilly/ffmpeg-build/ffprobe')
+FFMPEG_PATH  = os.environ.get('FFMPEG_PATH',  '/home/lilly/ffmpeg-build/ffmpeg')
 
 # EPG / SFTP — env vars take priority; also configurable via Settings UI.
 # These become the seed values for the DB on first run.
