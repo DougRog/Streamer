@@ -118,6 +118,10 @@ def get_current_item(channel_id, at_time, app):
     on-air on channel_id at at_time, or (None, None, None).
     Override entries shadow their parent for the specific schedule-tz date.
     at_time is UTC-naive.
+
+    Loop-enabled entries use a 48-hour lookback and an effectively infinite
+    occ_end so they fill until a later-starting item preempts them naturally
+    via the max(start_time) priority selection.
     """
     with app.app_context():
         from models import ScheduleEntry
@@ -126,34 +130,63 @@ def get_current_item(channel_id, at_time, app):
             channel_id=channel_id, parent_id=None
         ).all()
 
-        window = timedelta(hours=12)
         candidates = []
 
         for entry in entries:
-            occs = expand_occurrences(
-                entry,
-                at_time - window,
-                at_time + timedelta(seconds=1),
-            )
-            for occ_start, occ_end in occs:
-                if not (occ_start <= at_time < occ_end):
+            loop = bool(getattr(entry, 'loop_enabled', False))
+
+            if loop:
+                # Look back up to 48 h to find the most recent occurrence
+                # that has already started; treat it as running indefinitely.
+                occs = expand_occurrences(
+                    entry,
+                    at_time - timedelta(hours=48),
+                    at_time + timedelta(seconds=1),
+                )
+                started = [(s, e) for s, e in occs if s <= at_time]
+                if not started:
                     continue
+                occ_start, _ = max(started, key=lambda x: x[0])
+                occ_end = at_time + timedelta(days=365)  # preempted by any later item
+            else:
+                occs = expand_occurrences(
+                    entry,
+                    at_time - timedelta(hours=12),
+                    at_time + timedelta(seconds=1),
+                )
+                # Processed per-occurrence below
+                for occ_start, occ_end in occs:
+                    if not (occ_start <= at_time < occ_end):
+                        continue
+                    occ_date_sched = _sched_date(occ_start)
+                    override = ScheduleEntry.query.filter_by(
+                        parent_id=entry.id,
+                        override_date=occ_date_sched,
+                    ).first()
+                    if override:
+                        ov_start = datetime.combine(override.override_date,
+                                                    override.start_time.time())
+                        ov_end = ov_start + timedelta(seconds=override.duration)
+                        if ov_start <= at_time < ov_end:
+                            candidates.append((override, ov_start, ov_end))
+                    else:
+                        candidates.append((entry, occ_start, occ_end))
+                continue  # skip the loop-entry candidate append below
 
-                # Override is keyed by schedule-tz date
-                occ_date_sched = _sched_date(occ_start)
-                override = ScheduleEntry.query.filter_by(
-                    parent_id=entry.id,
-                    override_date=occ_date_sched,
-                ).first()
-
-                if override:
-                    ov_start = datetime.combine(override.override_date,
-                                                override.start_time.time())
-                    ov_end = ov_start + timedelta(seconds=override.duration)
-                    if ov_start <= at_time < ov_end:
-                        candidates.append((override, ov_start, ov_end))
-                else:
-                    candidates.append((entry, occ_start, occ_end))
+            # Loop entry: check override for the occurrence date
+            occ_date_sched = _sched_date(occ_start)
+            override = ScheduleEntry.query.filter_by(
+                parent_id=entry.id,
+                override_date=occ_date_sched,
+            ).first()
+            if override:
+                ov_start = datetime.combine(override.override_date,
+                                            override.start_time.time())
+                ov_end = ov_start + timedelta(seconds=override.duration)
+                if ov_start <= at_time < ov_end:
+                    candidates.append((override, ov_start, ov_end))
+            else:
+                candidates.append((entry, occ_start, occ_end))
 
         if not candidates:
             return None, None, None
