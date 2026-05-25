@@ -43,7 +43,7 @@ def _seed_settings(app):
     with app.app_context():
         changed = False
         for key, value in defaults.items():
-            if value and AppSetting.query.get(key) is None:
+            if value and db.session.get(AppSetting, key) is None:
                 db.session.add(AppSetting(key=key, value=value))
                 changed = True
         if changed:
@@ -405,7 +405,7 @@ def create_app():
         data = request.get_json(force=True) or {}
         source = data.get('live_source', 'dektec:0:0')
         channel_id = data.get('channel_id')
-        channel = Channel.query.get(channel_id) if channel_id else None
+        channel = db.session.get(Channel, channel_id) if channel_id else None
         ok, result = stream_manager.start_recording(source, channel)
         if ok:
             return jsonify({'ok': True, 'path': result})

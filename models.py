@@ -177,12 +177,12 @@ class AppSetting(db.Model):
 
     @classmethod
     def get(cls, key, default=''):
-        row = cls.query.get(key)
+        row = db.session.get(cls, key)
         return row.value if row else default
 
     @classmethod
     def set(cls, key, value):
-        row = cls.query.get(key)
+        row = db.session.get(cls, key)
         if row:
             row.value = str(value) if value is not None else ''
             row.updated_at = datetime.utcnow()
@@ -194,7 +194,7 @@ class AppSetting(db.Model):
     @classmethod
     def bulk_set(cls, mapping):
         for k, v in mapping.items():
-            row = cls.query.get(k)
+            row = db.session.get(cls, k)
             if row:
                 row.value = str(v) if v is not None else ''
                 row.updated_at = datetime.utcnow()
