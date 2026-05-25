@@ -10,6 +10,8 @@ Detection strategy (tried in order):
 FFmpeg DekTec input form:  -f dektec -i <card_index_or_serial>:<port>
 """
 import glob
+import re
+import shutil
 import subprocess
 import logging
 import os
@@ -177,36 +179,131 @@ def status():
     return dektec_status()
 
 
+_ABSENT_KEYWORDS = (
+    'no dta device', 'invalid device', 'no device found',
+    'cannot open device', 'device not found',
+    'dta error: no', 'dta error: invalid',
+    'error opening input', 'no such file',
+)
+
+
 def _probe_dektec_port(card, port):
     """
     Try to open DekTec card:port briefly via FFmpeg.
     Returns ('present', has_signal) or ('absent', False).
 
-    TimeoutExpired → device opened but hung waiting for signal → present.
-    Quick exit with a 'no device' error message → absent.
-    Quick exit without error → signal was present and brief read succeeded.
+    Uses Popen+communicate so we can read partial stderr on TimeoutExpired —
+    that lets us tell apart "device absent, FFmpeg errored quickly then was
+    killed by the timeout" from "device present but no signal, FFmpeg hung
+    waiting for frames".
     """
+    proc = None
     try:
-        r = subprocess.run(
+        proc = subprocess.Popen(
             [FFMPEG_PATH, '-hide_banner', '-loglevel', 'verbose',
              '-f', 'dektec', '-i', f'{card}:{port}',
              '-t', '0.5', '-f', 'null', '-'],
-            capture_output=True, text=True, timeout=5
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            preexec_fn=os.setsid,
         )
-        out = (r.stdout + r.stderr).lower()
-        absent_keywords = (
-            'no dta device', 'invalid device', 'no device found',
-            'cannot open device', 'device not found',
-            'dta error: no', 'dta error: invalid',
-        )
-        if any(kw in out for kw in absent_keywords):
-            return 'absent', False
-        return 'present', (r.returncode == 0)
-    except subprocess.TimeoutExpired:
-        # FFmpeg opened the device but hung waiting for signal — device is present
-        return 'present', False
+        try:
+            stdout, stderr = proc.communicate(timeout=3)
+            out = (stdout + stderr).decode('utf-8', errors='replace').lower()
+            if any(kw in out for kw in _ABSENT_KEYWORDS):
+                return 'absent', False
+            return 'present', (proc.returncode == 0)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), 9)
+            except OSError:
+                proc.kill()
+            stdout, stderr = proc.communicate()
+            out = (stdout + stderr).decode('utf-8', errors='replace').lower()
+            if any(kw in out for kw in _ABSENT_KEYWORDS):
+                return 'absent', False
+            # Timed out without an error message → device present, no signal
+            return 'present', False
     except (FileNotFoundError, OSError):
         return 'absent', False
+    finally:
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), 9)
+                proc.wait()
+            except Exception:
+                pass
+
+
+def _dtinfo_path():
+    """Return path to the DtInfo SDK CLI, or None if not found."""
+    for name in ('DtInfo', 'dtinfo'):
+        p = shutil.which(name)
+        if p:
+            return p
+    for pattern in (
+        os.path.expanduser('~/LinuxSDK*/Tools/DtInfo'),
+        os.path.expanduser('~/LinuxSDK*/Tools/dtinfo'),
+        '/usr/local/bin/DtInfo',
+        '/usr/local/bin/dtinfo',
+    ):
+        matches = glob.glob(pattern)
+        if matches:
+            return matches[0]
+    return None
+
+
+def _dtinfo_inputs():
+    """
+    Use the DtInfo SDK CLI to enumerate real DekTec input ports.
+    Returns a list of input dicts (same schema as list_inputs), or None on failure.
+
+    DtInfo output format (typical):
+      ----- DekTec Device 0 -----
+      Type:    DTA-2145
+      ...
+      Port 0: Input / Output
+      Port 1: Input
+    """
+    dtinfo = _dtinfo_path()
+    if not dtinfo:
+        return None
+    try:
+        r = subprocess.run([dtinfo], capture_output=True, text=True, timeout=15)
+        output = r.stdout + r.stderr
+    except Exception:
+        return None
+
+    if not output.strip():
+        return None
+
+    inputs = []
+    current_card = None
+    for line in output.splitlines():
+        line = line.strip()
+        # Match card headers: "DekTec Device 0", "----- Device 1 -----", etc.
+        m = re.search(r'(?:Device|DTA|DekTec\s+Device)\s+(\d+)', line, re.IGNORECASE)
+        if m:
+            current_card = int(m.group(1))
+            continue
+        if current_card is None:
+            continue
+        # Match port lines: "Port 0: Input" or "Port 0 - Input/Output"
+        m = re.match(r'Port\s+(\d+)[:\s-]+(.+)', line, re.IGNORECASE)
+        if m:
+            port = int(m.group(1))
+            desc = m.group(2).strip().lower()
+            # Skip output-only ports
+            if 'output' in desc and 'input' not in desc:
+                continue
+            label = f'DekTec card {current_card} port {port}'
+            inputs.append({
+                'label': label,
+                'value': f'dektec:{current_card}:{port}',
+                'type': 'dektec',
+                'signal': None,
+            })
+
+    return inputs if inputs else None
 
 
 def list_inputs():
@@ -214,9 +311,9 @@ def list_inputs():
     Return a list of detected SDI/capture input candidates, cached for 60 s.
     Each entry: {'label': str, 'value': str, 'type': str, 'signal': bool|None}
 
-    DekTec ports are discovered by probing card 0-1 port 0-7 via FFmpeg.
-    Non-existent ports return immediately; present-but-no-signal ports hit
-    the 5 s timeout — so worst case is about 5 s per present-no-signal port.
+    Strategy:
+      1. DtInfo SDK tool  — most accurate, no probing needed
+      2. FFmpeg probe     — bounded to cards/ports that answer quickly
     """
     global _inputs_cache, _inputs_cache_time
 
@@ -226,24 +323,32 @@ def list_inputs():
     inputs = []
 
     if _device_available('dektec'):
-        for card in range(4):
-            card_found = False
-            for port in range(8):
-                status, has_signal = _probe_dektec_port(card, port)
-                if status == 'absent':
-                    break  # no more ports on this card
-                card_found = True
-                label = f'DekTec card {card} port {port}'
-                if has_signal:
-                    label += ' — signal detected'
-                inputs.append({
-                    'label': label,
-                    'value': f'dektec:{card}:{port}',
-                    'type': 'dektec',
-                    'signal': has_signal,
-                })
-            if not card_found:
-                break  # no more cards
+        # Prefer DtInfo for accurate enumeration
+        dtinfo_result = _dtinfo_inputs()
+        if dtinfo_result is not None:
+            inputs.extend(dtinfo_result)
+        else:
+            # Fallback: probe via FFmpeg.  Stop at first 'absent' per card.
+            # Probe reads partial stderr on timeout so absent ports don't
+            # silently appear as present.
+            for card in range(4):
+                card_found = False
+                for port in range(8):
+                    status, has_signal = _probe_dektec_port(card, port)
+                    if status == 'absent':
+                        break
+                    card_found = True
+                    label = f'DekTec card {card} port {port}'
+                    if has_signal:
+                        label += ' — signal detected'
+                    inputs.append({
+                        'label': label,
+                        'value': f'dektec:{card}:{port}',
+                        'type': 'dektec',
+                        'signal': has_signal,
+                    })
+                if not card_found:
+                    break
 
     if _device_available('decklink'):
         inputs.append({

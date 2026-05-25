@@ -1,9 +1,11 @@
 import os
 import json
+import signal
+import subprocess
 import logging
 from datetime import datetime, timedelta, date, timezone
 
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
 from flask_sqlalchemy import SQLAlchemy
 
 from dateutil import tz as tzlib
@@ -384,6 +386,63 @@ def create_app():
         AppSetting.set('dektec.input', value)
         reset_dektec_cache()
         return jsonify({'ok': True})
+
+    @app.route('/api/preview')
+    def api_preview():
+        """Stream an MJPEG preview of an SDI / live source."""
+        from dektec_handler import get_ffmpeg_input_args
+        source = request.args.get('source', '').strip()
+        if not source:
+            source = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
+
+        input_args = get_ffmpeg_input_args(source)
+        if not input_args:
+            abort(400)
+
+        cmd = [config.FFMPEG_PATH] + input_args + [
+            '-an',
+            '-vf', 'scale=640:-2',
+            '-r', '5',
+            '-f', 'mpjpeg',
+            '-q:v', '5',
+            'pipe:1',
+        ]
+
+        def generate():
+            env = os.environ.copy()
+            env.setdefault('_GLIBCXX_USE_CXX11_ABI', '0')
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                preexec_fn=os.setsid,
+                env=env,
+            )
+            try:
+                while True:
+                    chunk = proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            except GeneratorExit:
+                pass
+            finally:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except OSError:
+                    pass
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except OSError:
+                        pass
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='multipart/x-mixed-replace; boundary=ffserver',
+        )
 
     @app.route('/api/validate_path', methods=['POST'])
     def api_validate_path():
