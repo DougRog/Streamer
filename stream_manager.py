@@ -371,7 +371,7 @@ class StreamManager:
                      f'keyint={DEFAULT_GOP_SIZE}:min-keyint={DEFAULT_GOP_SIZE}:scenecut=-1']
         args += [
             '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac', '-b:a', DEFAULT_AUDIO_BITRATE, '-ar', '48000',
+            '-c:a', 'aac', '-b:a', DEFAULT_AUDIO_BITRATE, '-ar', '48000', '-ac', '2',
             '-c:d', 'copy',
         ]
         return args

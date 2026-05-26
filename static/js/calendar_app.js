@@ -190,6 +190,11 @@ function openEditModal(fcEvent) {
   document.getElementById('f-color').value            = fcEvent.backgroundColor || '#6366f1';
   document.getElementById('f-loop-enabled').checked   = !!ep.loopEnabled;
   toggleLoopHint();
+  document.getElementById('f-scte35-enabled').checked = !!ep.scte35Enabled;
+  document.querySelector(`input[name=scte35OON][value="${ep.scte35OutOfNetwork ? 1 : 0}"]`).checked = true;
+  document.getElementById('f-scte35-event-id').value  = ep.scte35EventId || 0;
+  toggleScte35Fields();
+  highlightScteLabel(ep.scte35OutOfNetwork ? 'out' : 'in');
 
   const typeVal = ep.entryType || 'file';
   document.querySelector(`input[name=entryType][value=${typeVal}]`).checked = true;
@@ -198,9 +203,12 @@ function openEditModal(fcEvent) {
   syncRruleChip(ep.rrule || '');
   updateDurationHint();
 
-  // Auto-expand notes section if there's content
+  // Auto-expand sections if there's content
   if (ep.notes) {
     document.getElementById('advancedFields').classList.add('show');
+  }
+  if (ep.scte35Enabled) {
+    document.getElementById('scteFields').classList.add('show');
   }
 
   eventModal.show();
@@ -236,6 +244,9 @@ function saveEvent() {
     color:        document.getElementById('f-color').value,
     notes:        document.getElementById('f-notes').value.trim(),
     loop_enabled: entryType === 'file' && document.getElementById('f-loop-enabled').checked,
+    scte35_enabled:        document.getElementById('f-scte35-enabled').checked,
+    scte35_out_of_network: document.querySelector('input[name=scte35OON]:checked')?.value === '1',
+    scte35_event_id:       parseInt(document.getElementById('f-scte35-event-id').value || '0', 10),
   };
 
   if (!payload.title)      { showToast('Title is required', 'warning'); return; }
@@ -492,8 +503,13 @@ function resetForm() {
   _populatePresetDropdown(document.getElementById('f-live-source').value);
   document.getElementById('f-duration').value      = '1:00:00';
   document.getElementById('f-color').value         = '#6366f1';
-  document.getElementById('f-loop-enabled').checked = false;
+  document.getElementById('f-loop-enabled').checked   = false;
   toggleLoopHint();
+  document.getElementById('f-scte35-enabled').checked = false;
+  document.querySelector('input[name=scte35OON][value="1"]').checked = true;
+  document.getElementById('f-scte35-event-id').value  = '0';
+  toggleScte35Fields();
+  highlightScteLabel('out');
   document.querySelector('input[name=entryType][value=file]').checked = true;
   document.querySelector('input[name=editMode][value=this]').checked  = true;
   toggleTypePanels('file');
@@ -501,6 +517,7 @@ function resetForm() {
   highlightScopeLabel('this');
   document.querySelectorAll('.rrule-chip').forEach(c => c.classList.remove('active'));
   document.getElementById('advancedFields').classList.remove('show');
+  document.getElementById('scteFields').classList.remove('show');
   updateDurationHint();
 }
 
@@ -534,6 +551,20 @@ function toggleLoopHint() {
   document.getElementById('loop-hint').style.display = on ? 'block' : 'none';
   document.getElementById('duration-col').classList.toggle('d-none', on);
   document.getElementById('loop-duration-col').classList.toggle('d-none', !on);
+}
+
+function toggleScte35Fields() {
+  const on = document.getElementById('f-scte35-enabled').checked;
+  document.getElementById('scte35-oon-col').classList.toggle('d-none', !on);
+  document.getElementById('scte35-eid-col').classList.toggle('d-none', !on);
+  if (on) document.getElementById('scteFields').classList.add('show');
+}
+
+function highlightScteLabel(which) {
+  document.getElementById('scte-out-label').style.borderColor = '';
+  document.getElementById('scte-in-label').style.borderColor  = '';
+  const active = document.getElementById(which === 'out' ? 'scte-out-label' : 'scte-in-label');
+  if (active) active.style.borderColor = 'var(--accent)';
 }
 
 function highlightTypeLabel(type) {

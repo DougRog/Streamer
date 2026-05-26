@@ -69,6 +69,9 @@ def create_app():
             'ALTER TABLE channels ADD COLUMN slate_asset_path VARCHAR(500)',
             'ALTER TABLE channels ADD COLUMN epg_filename VARCHAR(100)',
             'ALTER TABLE schedule_entries ADD COLUMN recording_path VARCHAR(500)',
+            'ALTER TABLE schedule_entries ADD COLUMN scte35_enabled BOOLEAN NOT NULL DEFAULT 0',
+            'ALTER TABLE schedule_entries ADD COLUMN scte35_out_of_network BOOLEAN NOT NULL DEFAULT 1',
+            'ALTER TABLE schedule_entries ADD COLUMN scte35_event_id INTEGER NOT NULL DEFAULT 0',
         ]:
             try:
                 db.session.execute(text(stmt))
@@ -289,6 +292,9 @@ def create_app():
                 'notes': entry.notes or '',
                 'loopEnabled': bool(entry.loop_enabled),
                 'recordingPath': entry.recording_path or '',
+                'scte35Enabled': bool(entry.scte35_enabled),
+                'scte35OutOfNetwork': bool(entry.scte35_out_of_network if entry.scte35_out_of_network is not None else True),
+                'scte35EventId': entry.scte35_event_id or 0,
                 **extra_props,
             },
         }
@@ -664,6 +670,12 @@ def create_app():
             entry.loop_enabled = bool(data['loop_enabled'])
         if 'recording_path' in data:
             entry.recording_path = (data['recording_path'] or '').strip() or None
+        if 'scte35_enabled' in data:
+            entry.scte35_enabled = bool(data['scte35_enabled'])
+        if 'scte35_out_of_network' in data:
+            entry.scte35_out_of_network = bool(data['scte35_out_of_network'])
+        if 'scte35_event_id' in data:
+            entry.scte35_event_id = int(data.get('scte35_event_id') or 0)
 
         if not entry.title:
             raise ValueError('title is required')

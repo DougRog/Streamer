@@ -226,6 +226,63 @@
                 </div>
               </div>
             </div>
+
+            <!-- SCTE-35 injection (collapsed by default) -->
+            <div class="col-12">
+              <button type="button" class="btn btn-xs btn-ghost w-100 text-start"
+                      data-bs-toggle="collapse" data-bs-target="#scteFields">
+                <i class="bi bi-chevron-down me-1"></i> SCTE-35 injection
+              </button>
+              <div class="collapse mt-2" id="scteFields">
+                <div class="row g-3">
+                  <div class="col-12">
+                    <div class="form-check form-switch mb-0">
+                      <input class="form-check-input" type="checkbox" id="f-scte35-enabled" role="switch"
+                             onchange="toggleScte35Fields()">
+                      <label class="form-check-label" for="f-scte35-enabled"
+                             style="font-size:0.82rem;color:var(--text-sub)">
+                        Inject SCTE-35 splice cue when this event starts
+                      </label>
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:3px">
+                      <i class="bi bi-info-circle me-1"></i>
+                      Sends splice_insert (splice_immediate) to the channel's multicast address.
+                      Duration is taken from the event length.
+                    </div>
+                  </div>
+                  <div class="col-md-7 d-none" id="scte35-oon-col">
+                    <label class="form-label">Signal type</label>
+                    <div class="d-flex gap-2">
+                      <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                             style="border:1px solid var(--border-md);cursor:pointer" id="scte-out-label">
+                        <input type="radio" name="scte35OON" value="1" class="form-check-input m-0" checked
+                               onchange="highlightScteLabel('out')">
+                        <div>
+                          <div style="font-size:0.82rem;font-weight:600;color:#fff">Out of network</div>
+                          <div style="font-size:0.7rem;color:var(--text-muted)">Ad break / commercial</div>
+                        </div>
+                      </label>
+                      <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
+                             style="border:1px solid var(--border-md);cursor:pointer" id="scte-in-label">
+                        <input type="radio" name="scte35OON" value="0" class="form-check-input m-0"
+                               onchange="highlightScteLabel('in')">
+                        <div>
+                          <div style="font-size:0.82rem;font-weight:600;color:#fff">Return to network</div>
+                          <div style="font-size:0.7rem;color:var(--text-muted)">Program content</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="col-md-5 d-none" id="scte35-eid-col">
+                    <label class="form-label">Event ID
+                      <span style="font-size:0.7rem;color:var(--text-muted)">(0 = auto)</span>
+                    </label>
+                    <input type="number" class="form-control" id="f-scte35-event-id"
+                           value="0" min="0" max="4294967295">
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </form>
       </div>

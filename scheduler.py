@@ -10,6 +10,7 @@ Per-day overrides shadow the recurring entry for that specific date.
 """
 import logging
 import threading
+import time
 from datetime import datetime, timedelta, date
 
 from dateutil import rrule as rrulelib
@@ -337,6 +338,26 @@ class PlayoutScheduler:
             ok = False
         if not ok:
             logger.error(f'[ch{channel.id}] Failed to start "{entry.title}"')
+            return
+
+        if getattr(entry, 'scte35_enabled', False):
+            self._inject_scte35(channel, entry)
+
+    def _inject_scte35(self, channel, entry):
+        """Send a SCTE-35 splice_insert cue in a background thread."""
+        oon      = bool(getattr(entry, 'scte35_out_of_network', True))
+        raw_eid  = getattr(entry, 'scte35_event_id', 0) or 0
+        event_id = raw_eid if raw_eid else (int(time.time()) & 0xFFFFFFFF)
+        dur      = float(getattr(entry, 'duration', 0) or 0)
+
+        def _send():
+            try:
+                from scte35_injector import inject_splice_insert
+                inject_splice_insert(channel, event_id, oon, dur)
+            except Exception:
+                logger.exception(f'[ch{channel.id}] SCTE-35 injection error')
+
+        threading.Thread(target=_send, daemon=True, name=f'scte35-ch{channel.id}').start()
 
 
 scheduler = None

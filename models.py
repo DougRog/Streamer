@@ -70,6 +70,9 @@ class ScheduleEntry(db.Model):
     color = db.Column(db.String(20))
     notes = db.Column(db.Text)
     loop_enabled = db.Column(db.Boolean, default=False)
+    scte35_enabled = db.Column(db.Boolean, default=False)
+    scte35_out_of_network = db.Column(db.Boolean, default=True)
+    scte35_event_id = db.Column(db.Integer, default=0)   # 0 = auto-generate at inject time
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     overrides = db.relationship(
@@ -111,6 +114,9 @@ class ScheduleEntry(db.Model):
             'notes': self.notes,
             'loop_enabled': bool(self.loop_enabled),
             'recording_path': self.recording_path or '',
+            'scte35_enabled': bool(self.scte35_enabled),
+            'scte35_out_of_network': bool(self.scte35_out_of_network if self.scte35_out_of_network is not None else True),
+            'scte35_event_id': self.scte35_event_id or 0,
         }
 
 
