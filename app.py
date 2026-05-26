@@ -432,6 +432,8 @@ def create_app():
     def api_start_recording():
         data = request.get_json(force=True) or {}
         source = (data.get('live_source') or '').strip()
+        if not source:
+            return jsonify({'ok': False, 'error': 'live_source is required'}), 400
         channel_id = data.get('channel_id')
         channel = db.session.get(Channel, channel_id) if channel_id else None
         ok, result = stream_manager.start_recording(source, channel)

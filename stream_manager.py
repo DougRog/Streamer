@@ -161,16 +161,24 @@ class StreamProcess:
 
     def _tail_stderr(self):
         from scte_handler import parse_ffmpeg_log_line
+        # Skip pure FFmpeg progress-stat lines — they're noisy and unhelpful in the log tail
+        _skip_re = re.compile(
+            r'^\[info\]\s*(?:frame=|fps=|size=|time=|bitrate=|speed=)',
+            re.IGNORECASE,
+        )
         try:
             for raw in self.process.stderr:
                 line = raw.decode('utf-8', errors='replace').rstrip()
-                with self._lock:
-                    self._log.append(line)
-                    if len(self._log) > 200:
-                        self._log.pop(0)
 
-                if self._app and ('scte' in line.lower() or 'splice' in line.lower()):
+                is_scte = 'scte' in line.lower() or 'splice' in line.lower()
+                if is_scte and self._app:
                     parse_ffmpeg_log_line(line, self.channel_id, self._app)
+
+                if not _skip_re.match(line):
+                    with self._lock:
+                        self._log.append(line)
+                        if len(self._log) > 200:
+                            self._log.pop(0)
 
                 if re.search(r'\berror\b', line, re.IGNORECASE):
                     logger.warning(f'[ch{self.channel_id}] {line}')
@@ -233,8 +241,8 @@ class StreamManager:
         if not rec_path:
             ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             rec_path = os.path.join(RECORDING_PATH, f'recording_{ts}')
-        if not rec_path.lower().endswith('.mxf'):
-            rec_path += '.mxf'
+        if not rec_path.lower().endswith(('.ts', '.mts')):
+            rec_path += '.ts'
 
         os.makedirs(os.path.dirname(os.path.abspath(rec_path)), exist_ok=True)
         cmd = self._recording_cmd(args, rec_path, channel)
@@ -269,10 +277,12 @@ class StreamManager:
 
         os.makedirs(RECORDING_PATH, exist_ok=True)
         ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        out_path = os.path.join(RECORDING_PATH, f'recording_{ts}.mxf')
+        out_path = os.path.join(RECORDING_PATH, f'recording_{ts}.ts')
         cmd = self._recording_cmd(args, out_path, channel)
         rec_id = f'rec_{ts}'
-        proc = StreamProcess(-1, -1, cmd, f'Recording → {out_path}')
+        # channel_id=None so any SCTE-35 events are stored with NULL channel_id
+        # rather than an invalid -1 that violates the FK constraint
+        proc = StreamProcess(None, -1, cmd, f'Recording → {out_path}')
         if proc.start(self._app):
             with self._lock:
                 self._recordings[rec_id] = proc
@@ -406,7 +416,7 @@ class StreamManager:
         else:
             seek = slot_elapsed
 
-        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
+        cmd = [FFMPEG_PATH, '-hide_banner', '-nostdin', '-loglevel', 'level+info']
         if loop:
             cmd += ['-stream_loop', '-1']
         if seek > 2.0:
@@ -419,7 +429,7 @@ class StreamManager:
         return cmd
 
     def _live_cmd(self, channel, input_args):
-        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
+        cmd = [FFMPEG_PATH, '-hide_banner', '-nostdin', '-loglevel', 'level+info']
         cmd += input_args
         cmd += ['-copyts']
         cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
@@ -428,19 +438,22 @@ class StreamManager:
         return cmd
 
     def _recording_cmd(self, input_args, out_path, channel=None):
-        cmd = [FFMPEG_PATH, '-hide_banner', '-loglevel', 'level+warning']
+        # MPEG-TS is used for recording — it preserves all streams verbatim
+        # (SCTE-35, all audio tracks, CC) and is the native container for live
+        # broadcast ingest.  MXF would fail on data/SCTE-35 streams with -c copy.
+        cmd = [FFMPEG_PATH, '-hide_banner', '-nostdin', '-loglevel', 'level+info']
         cmd += input_args
 
         if channel:
-            # Output 1: transcoded multicast (primary A/V + SCTE-35 data)
+            # Output 1: transcoded multicast (re-encoded A/V + pass-through data)
             cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
             cmd += self._common_video_args(channel)
             cmd += self._mpegts_out_args(channel)
-            # Output 2: lossless MXF — all streams verbatim (CC, SCTE-35, VANC, all audio)
-            cmd += ['-map', '0', '-c', 'copy', '-f', 'mxf', out_path]
+            # Output 2: raw MPEG-TS file — all streams verbatim, SCTE-35 intact
+            cmd += ['-map', '0', '-c', 'copy', '-f', 'mpegts', out_path]
         else:
             # Record only — all streams verbatim
-            cmd += ['-map', '0', '-c', 'copy', '-f', 'mxf', out_path]
+            cmd += ['-map', '0', '-c', 'copy', '-f', 'mpegts', out_path]
 
         return cmd
 
