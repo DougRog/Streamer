@@ -227,7 +227,7 @@ function saveEvent() {
     live_source:  document.getElementById('f-live-source').value.trim() || (LIVE_PRESETS[0] && LIVE_PRESETS[0].url) || '',
     start_time:   easternToISO(startVal),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
-                    ? 3600    // nominal; scheduler runs it indefinitely until preempted
+                    ? 3600    // nominal; scheduler and calendar API both ignore this for loops
                     : hmsToSecs(document.getElementById('f-duration').value),
     recording_path: entryType === 'recording'
                     ? (document.getElementById('f-rec-path').value.trim() || null)

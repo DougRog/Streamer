@@ -239,12 +239,32 @@ def create_app():
                     ov_end = ov_start + timedelta(seconds=override.duration)
                     ev = _fc_event(override, ov_start, ov_end,
                                    isOverride=True, parentId=entry.id,
-                                   occurrenceDate=date_str)  # already ET date
+                                   occurrenceDate=date_str)
                 else:
                     ev = _fc_event(entry, occ_start, occ_end,
                                    isRecurring=bool(entry.rrule),
-                                   occurrenceDate=date_str)  # ET date
+                                   occurrenceDate=date_str)
                 events.append(ev)
+
+        # Expand loop events to fill until the next item on the same channel.
+        # The stored duration is a nominal value; the scheduler already ignores it
+        # at runtime.  Here we make the calendar blocks visually accurate.
+        loop_events = [ev for ev in events if ev['extendedProps'].get('loopEnabled')]
+        if loop_events:
+            ch_starts: dict = {}
+            for ev in events:
+                cid = ev['extendedProps']['channelId']
+                t = datetime.strptime(ev['start'], '%Y-%m-%dT%H:%M:%SZ')
+                ch_starts.setdefault(cid, []).append(t)
+            for cid in ch_starts:
+                ch_starts[cid].sort()
+
+            for ev in loop_events:
+                cid = ev['extendedProps']['channelId']
+                ev_start = datetime.strptime(ev['start'], '%Y-%m-%dT%H:%M:%SZ')
+                later = [t for t in ch_starts[cid] if t > ev_start]
+                fill_end = min(later) if later else end
+                ev['end'] = fill_end.strftime('%Y-%m-%dT%H:%M:%SZ')
 
         return jsonify(events)
 
