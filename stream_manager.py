@@ -394,7 +394,8 @@ class StreamManager:
           PID 0      — PAT  (fixed by MPEG-TS standard)
           PID 4096   — PMT
           PID 256    — video elementary stream
-          PID 257    — audio elementary stream (+ any data PIDs)
+          PID 257    — audio elementary stream
+          PID 500    — SCTE-35 data (de-facto NA broadcast standard; stream index 2)
         """
         return [
             '-f', 'mpegts',
@@ -402,6 +403,7 @@ class StreamManager:
             '-mpegts_pmt_start_pid', '4096',
             '-mpegts_start_pid', '256',
             '-mpegts_flags', 'resend_headers',
+            '-streamid', '2:500',   # pin first data stream (SCTE-35) to PID 500
             self._multicast_url(channel),
         ]
 
