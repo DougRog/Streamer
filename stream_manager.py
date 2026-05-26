@@ -443,6 +443,7 @@ class StreamManager:
         # broadcast ingest.  MXF would fail on data/SCTE-35 streams with -c copy.
         cmd = [FFMPEG_PATH, '-hide_banner', '-nostdin', '-loglevel', 'level+info']
         cmd += input_args
+        cmd += ['-copyts']
 
         if channel:
             # Output 1: transcoded multicast (re-encoded A/V + pass-through data)
