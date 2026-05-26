@@ -127,9 +127,9 @@
                   <input type="radio" name="entryType" value="live" class="form-check-input m-0">
                   <div>
                     <div style="font-size:0.82rem;font-weight:600;color:#fff">
-                      <i class="bi bi-camera-video me-1"></i>Live SDI
+                      <i class="bi bi-camera-video me-1"></i>Live Feed
                     </div>
-                    <div style="font-size:0.7rem;color:var(--text-muted)">Dektec pass-through</div>
+                    <div style="font-size:0.7rem;color:var(--text-muted)">Multicast pass-through</div>
                   </div>
                 </label>
                 <label class="d-flex align-items-center gap-2 px-3 py-2 rounded flex-1"
@@ -185,8 +185,11 @@
             <!-- Live source -->
             <div class="col-12 d-none" id="liveSource">
               <label class="form-label">Live source</label>
+              <select class="form-select mb-2" id="f-preset-select" onchange="onModalPresetSelect()">
+                <option value="">— select a preset —</option>
+              </select>
               <input class="form-control mono" id="f-live-source"
-                     value="dektec:0:0" placeholder="dektec:0:0 or udp://…">
+                     placeholder="udp://239.x.x.x:port or srt://…">
             </div>
 
             <!-- Repeat / recurrence -->
@@ -307,7 +310,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>const DEKTEC_INPUT = {{ dektec_input | tojson }};</script>
+<script>const LIVE_PRESETS = {{ presets | tojson }};</script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/luxon3@6.1.14/index.global.min.js"></script>

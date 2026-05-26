@@ -1,19 +1,16 @@
 import os
 import json
-import signal
-import subprocess
 import logging
 from datetime import datetime, timedelta, date, timezone
 
-from flask import Flask, render_template, request, jsonify, abort, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
 
 from dateutil import tz as tzlib
 
 import config
-from models import db, Channel, ScheduleEntry, SCTEEvent, AppSetting
+from models import db, Channel, ScheduleEntry, SCTEEvent, AppSetting, MulticastPreset
 from stream_manager import stream_manager
-from dektec_handler import dektec_status, list_inputs as list_dektec_inputs, reset_cache as reset_dektec_cache
 from scheduler import (init_scheduler, expand_occurrences,
                        get_current_item, get_next_item, _sched_date)
 import sftp_uploader
@@ -92,20 +89,22 @@ def create_app():
             recent_scte = SCTEEvent.query.order_by(
                 SCTEEvent.detected_at.desc()
             ).limit(20).all()
-        saved_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or ''
+        presets = [p.to_dict() for p in
+                   MulticastPreset.query.order_by(MulticastPreset.name).all()]
         return render_template(
             'index.html',
             channels=channels,
             stream_manager=stream_manager,
             recent_scte=recent_scte,
-            dektec_input=saved_sdi,
+            presets=presets,
         )
 
     @app.route('/calendar')
     def calendar():
         channels = Channel.query.order_by(Channel.name).all()
-        saved_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
-        return render_template('calendar.html', channels=channels, dektec_input=saved_sdi)
+        presets = [p.to_dict() for p in
+                   MulticastPreset.query.order_by(MulticastPreset.name).all()]
+        return render_template('calendar.html', channels=channels, presets=presets)
 
     @app.route('/channels')
     def channels():
@@ -364,85 +363,52 @@ def create_app():
         return jsonify(override.to_dict()), 201
 
     # ------------------------------------------------------------------ #
-    #  Dektec / Live / Recording API                                       #
+    #  Live input presets API                                             #
     # ------------------------------------------------------------------ #
 
-    @app.route('/api/dektec/status', methods=['GET'])
-    def api_dektec_status():
-        return jsonify(dektec_status())
+    @app.route('/api/presets', methods=['GET'])
+    def api_list_presets():
+        return jsonify([p.to_dict() for p in
+                        MulticastPreset.query.order_by(MulticastPreset.name).all()])
 
-    @app.route('/api/dektec/inputs', methods=['GET'])
-    def api_dektec_inputs():
-        inputs = list_dektec_inputs()
-        saved = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or ''
-        return jsonify({'inputs': inputs, 'saved': saved})
-
-    @app.route('/api/dektec/input', methods=['POST'])
-    def api_dektec_input():
+    @app.route('/api/presets', methods=['POST'])
+    def api_create_preset():
         data = request.get_json(force=True) or {}
-        value = (data.get('value') or '').strip()
-        if not value:
-            return jsonify({'error': 'value required'}), 400
-        AppSetting.set('dektec.input', value)
-        reset_dektec_cache()
+        name = (data.get('name') or '').strip()
+        url  = (data.get('url')  or '').strip()
+        if not name or not url:
+            return jsonify({'error': 'name and url required'}), 400
+        p = MulticastPreset(name=name, url=url, notes=(data.get('notes') or '').strip() or None)
+        db.session.add(p)
+        db.session.commit()
+        return jsonify(p.to_dict()), 201
+
+    @app.route('/api/presets/<int:pid>', methods=['PUT'])
+    def api_update_preset(pid):
+        p = db.session.get(MulticastPreset, pid)
+        if not p:
+            abort(404)
+        data = request.get_json(force=True) or {}
+        if 'name'  in data: p.name  = (data['name']  or '').strip()
+        if 'url'   in data: p.url   = (data['url']   or '').strip()
+        if 'notes' in data: p.notes = (data['notes'] or '').strip() or None
+        if not p.name or not p.url:
+            return jsonify({'error': 'name and url required'}), 400
+        db.session.commit()
+        return jsonify(p.to_dict())
+
+    @app.route('/api/presets/<int:pid>', methods=['DELETE'])
+    def api_delete_preset(pid):
+        p = db.session.get(MulticastPreset, pid)
+        if not p:
+            abort(404)
+        db.session.delete(p)
+        db.session.commit()
         return jsonify({'ok': True})
 
-    @app.route('/api/preview')
-    def api_preview():
-        """Stream an MJPEG preview of an SDI / live source."""
-        from dektec_handler import get_ffmpeg_input_args
-        source = request.args.get('source', '').strip()
-        if not source:
-            source = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
-
-        input_args = get_ffmpeg_input_args(source)
-        if not input_args:
-            abort(400)
-
-        cmd = [config.FFMPEG_PATH] + input_args + [
-            '-an',
-            '-vf', 'scale=640:-2',
-            '-r', '5',
-            '-f', 'mpjpeg',
-            '-q:v', '5',
-            'pipe:1',
-        ]
-
-        def generate():
-            env = os.environ.copy()
-            env.setdefault('_GLIBCXX_USE_CXX11_ABI', '0')
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                preexec_fn=os.setsid,
-                env=env,
-            )
-            try:
-                while True:
-                    chunk = proc.stdout.read(4096)
-                    if not chunk:
-                        break
-                    yield chunk
-            except GeneratorExit:
-                pass
-            finally:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except OSError:
-                    pass
-                try:
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except OSError:
-                        pass
-
-        return Response(
-            stream_with_context(generate()),
-            mimetype='multipart/x-mixed-replace; boundary=ffserver',
-        )
+    # ------------------------------------------------------------------ #
+    #  Recording API                                                       #
+    # ------------------------------------------------------------------ #
 
     @app.route('/api/validate_path', methods=['POST'])
     def api_validate_path():
@@ -465,8 +431,7 @@ def create_app():
     @app.route('/api/recording/start', methods=['POST'])
     def api_start_recording():
         data = request.get_json(force=True) or {}
-        default_sdi = AppSetting.get('dektec.input', '') or config.DEKTEC_INPUT_URI or 'dektec:0:0'
-        source = data.get('live_source') or default_sdi
+        source = (data.get('live_source') or '').strip()
         channel_id = data.get('channel_id')
         channel = db.session.get(Channel, channel_id) if channel_id else None
         ok, result = stream_manager.start_recording(source, channel)

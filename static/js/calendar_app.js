@@ -183,7 +183,8 @@ function openEditModal(fcEvent) {
   document.getElementById('f-duration').value         = secsToHMS(ep.duration);
   document.getElementById('f-rec-path').value         = ep.recordingPath || '';
   document.getElementById('f-asset-path').value       = ep.assetPath || '';
-  document.getElementById('f-live-source').value      = ep.liveSource || DEKTEC_INPUT || 'dektec:0:0';
+  document.getElementById('f-live-source').value      = ep.liveSource || (LIVE_PRESETS[0] && LIVE_PRESETS[0].url) || '';
+  _populatePresetDropdown(ep.liveSource);
   document.getElementById('f-rrule').value            = ep.rrule || '';
   document.getElementById('f-notes').value            = ep.notes || '';
   document.getElementById('f-color').value            = fcEvent.backgroundColor || '#6366f1';
@@ -223,7 +224,7 @@ function saveEvent() {
     title:        document.getElementById('f-title').value.trim(),
     entry_type:   entryType,
     asset_path:   document.getElementById('f-asset-path').value.trim() || null,
-    live_source:  document.getElementById('f-live-source').value.trim() || DEKTEC_INPUT || 'dektec:0:0',
+    live_source:  document.getElementById('f-live-source').value.trim() || (LIVE_PRESETS[0] && LIVE_PRESETS[0].url) || '',
     start_time:   easternToISO(startVal),
     duration:     (entryType === 'file' && document.getElementById('f-loop-enabled').checked)
                     ? 3600    // nominal; scheduler runs it indefinitely until preempted
@@ -487,7 +488,8 @@ function resetForm() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
-  document.getElementById('f-live-source').value = DEKTEC_INPUT || 'dektec:0:0';
+  document.getElementById('f-live-source').value = (LIVE_PRESETS[0] && LIVE_PRESETS[0].url) || '';
+  _populatePresetDropdown(document.getElementById('f-live-source').value);
   document.getElementById('f-duration').value      = '1:00:00';
   document.getElementById('f-color').value         = '#6366f1';
   document.getElementById('f-loop-enabled').checked = false;
@@ -500,6 +502,20 @@ function resetForm() {
   document.querySelectorAll('.rrule-chip').forEach(c => c.classList.remove('active'));
   document.getElementById('advancedFields').classList.remove('show');
   updateDurationHint();
+}
+
+function _populatePresetDropdown(currentUrl) {
+  const sel = document.getElementById('f-preset-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— select a preset —</option>' +
+    (LIVE_PRESETS || []).map(p =>
+      `<option value="${escHtml(p.url)}" ${p.url === currentUrl ? 'selected' : ''}>${escHtml(p.name)}</option>`
+    ).join('');
+}
+
+function onModalPresetSelect() {
+  const url = document.getElementById('f-preset-select').value;
+  if (url) document.getElementById('f-live-source').value = url;
 }
 
 function toggleTypePanels(type) {

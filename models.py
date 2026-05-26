@@ -171,6 +171,24 @@ class MediaAsset(db.Model):
         }
 
 
+class MulticastPreset(db.Model):
+    """Named multicast / live input sources available for recording and scheduling."""
+    __tablename__ = 'multicast_presets'
+
+    id    = db.Column(db.Integer, primary_key=True)
+    name  = db.Column(db.String(100), nullable=False)
+    url   = db.Column(db.String(300), nullable=False)
+    notes = db.Column(db.String(500))
+
+    def to_dict(self):
+        return {
+            'id':    self.id,
+            'name':  self.name,
+            'url':   self.url,
+            'notes': self.notes or '',
+        }
+
+
 class AppSetting(db.Model):
     """Key/value store for runtime configuration (SFTP, EPG, etc.)."""
     __tablename__ = 'app_settings'

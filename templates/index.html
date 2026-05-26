@@ -11,20 +11,6 @@
     <h1 class="page-title">Dashboard</h1>
     <p class="page-sub mb-0">Live channel status and playout control</p>
   </div>
-
-  <!-- Recording controls -->
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    <span class="pill {% if dektec_input %}pill-live{% else %}pill-idle{% endif %}" id="sdi-status-pill">
-      <i class="bi bi-{% if dektec_input %}broadcast{% else %}x-circle{% endif %}"></i>
-      {% if dektec_input %}{{ dektec_input }}{% else %}No SDI configured{% endif %}
-    </span>
-    <button class="btn btn-sm btn-danger-soft" id="btn-rec-start" onclick="startRecording()">
-      <i class="bi bi-record-circle"></i> Record Live
-    </button>
-    <button class="btn btn-sm btn-ghost" id="btn-rec-stop" onclick="stopRecording()" disabled>
-      <i class="bi bi-stop-circle"></i> Stop Record
-    </button>
-  </div>
 </div>
 
 <!-- ====================================================== -->
@@ -101,51 +87,62 @@
 {% endif %}
 
 <!-- ====================================================== -->
-<!--  SDI Input                                             -->
+<!--  Live Inputs                                           -->
 <!-- ====================================================== -->
-<div class="card mb-4" id="sdi-card">
+<div class="card mb-4" id="live-inputs-card">
   <div class="card-header">
-    <span><i class="bi bi-camera-video me-2"></i>SDI Input</span>
-    <span id="sdi-scan-badge" class="pill pill-idle" style="font-size:0.75rem">
-      <i class="bi bi-arrow-repeat spin"></i> Scanning…
-    </span>
+    <span><i class="bi bi-broadcast me-2"></i>Live Inputs</span>
+    <button class="btn btn-xs btn-primary" onclick="showPresetForm()">
+      <i class="bi bi-plus-lg"></i> Add Preset
+    </button>
   </div>
   <div class="card-body py-3">
-    <div id="sdi-input-list" class="mb-3"></div>
-    <div class="row g-2 align-items-end">
+
+    <!-- Preset list -->
+    <div id="preset-list" class="mb-3"></div>
+
+    <!-- Add / Edit form (hidden by default) -->
+    <div id="preset-form" class="d-none p-2 mb-3 rounded" style="border:1px solid var(--border-md)">
+      <div class="text-sub mb-2" style="font-size:0.8rem;font-weight:600" id="preset-form-title">Add Preset</div>
+      <div class="row g-2">
+        <div class="col-md-4">
+          <input class="form-control form-control-sm" id="pf-name" placeholder="Name (e.g. Studio Feed)">
+        </div>
+        <div class="col-md-6">
+          <input class="form-control form-control-sm mono" id="pf-url" placeholder="udp://239.x.x.x:port">
+        </div>
+        <div class="col-auto d-flex gap-1">
+          <button class="btn btn-sm btn-primary" onclick="savePreset()">
+            <i class="bi bi-check2"></i>
+          </button>
+          <button class="btn btn-sm btn-ghost" onclick="cancelPresetForm()">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+      </div>
+      <input type="hidden" id="pf-id">
+    </div>
+
+    <!-- Source + record controls -->
+    <div class="row g-2 align-items-end" style="border-top:1px solid var(--border);padding-top:12px">
       <div class="col">
         <label class="form-label text-sub" style="font-size:0.8rem">
-          Source string
-          <span class="text-muted" style="font-weight:400"> — dektec:card:port, serial:port, udp://…, etc.</span>
+          Source
+          <span class="text-muted" style="font-weight:400"> — select a preset above or enter a URL</span>
         </label>
-        <input class="form-control mono form-control-sm" id="sdi-custom"
-               placeholder="dektec:0:0" value="{{ dektec_input | e }}">
+        <input class="form-control mono form-control-sm" id="live-source-input"
+               placeholder="udp://239.x.x.x:port or srt://…">
       </div>
       <div class="col-auto d-flex gap-2">
-        <button class="btn btn-ghost btn-sm" id="btn-preview-start" onclick="startPreview()" title="Live preview">
-          <i class="bi bi-eye"></i> Preview
+        <button class="btn btn-sm btn-danger-soft" id="btn-rec-start" onclick="startRecording()">
+          <i class="bi bi-record-circle"></i> Record
         </button>
-        <button class="btn btn-primary btn-sm" onclick="saveSdiInput()">
-          <i class="bi bi-floppy"></i> Save
+        <button class="btn btn-sm btn-ghost" id="btn-rec-stop" onclick="stopRecording()" disabled>
+          <i class="bi bi-stop-circle"></i> Stop
         </button>
       </div>
     </div>
 
-    <!-- Live preview panel (hidden until started) -->
-    <div id="preview-panel" class="mt-3" style="display:none">
-      <div class="d-flex align-items-center gap-2 mb-1">
-        <span style="font-size:0.8rem;font-weight:600;color:#fff">
-          <i class="bi bi-camera-video me-1" style="color:var(--accent)"></i>Live Preview
-        </span>
-        <span id="preview-source-label" class="mono text-muted ms-1" style="font-size:0.72rem"></span>
-        <button class="btn btn-xs btn-ghost ms-auto" onclick="stopPreview()">
-          <i class="bi bi-x-circle"></i> Stop
-        </button>
-      </div>
-      <img id="preview-img"
-           style="width:100%;border-radius:4px;background:#111;display:block;min-height:120px"
-           alt="Live preview">
-    </div>
   </div>
 </div>
 
@@ -225,7 +222,6 @@
 {% block scripts %}
 <script>
 const channelIds = {{ channels | map(attribute='id') | list | tojson }};
-let currentSdiInput = {{ dektec_input | tojson }};
 
 function toggleChannel(id, start) {
   const ep = start ? `/api/channels/${id}/start` : `/api/channels/${id}/stop`;
@@ -234,115 +230,127 @@ function toggleChannel(id, start) {
     .then(() => location.reload());
 }
 
-// ---- SDI input ----
-function loadSdiInputs() {
-  fetch('/api/dektec/inputs')
-    .then(r => r.json())
-    .then(data => {
-      const list  = document.getElementById('sdi-input-list');
-      const badge = document.getElementById('sdi-scan-badge');
-      const inputs = data.inputs || [];
+// ---- Live input presets ----
+let presets = {{ presets | tojson }};
 
-      if (inputs.length) {
-        badge.className = 'pill pill-live';
-        badge.innerHTML = `<i class="bi bi-check-circle"></i> ${inputs.length} input${inputs.length !== 1 ? 's' : ''} detected`;
-        list.innerHTML = inputs.map(inp => `
-          <label class="d-flex align-items-center gap-2 p-2 mb-1 rounded sdi-opt"
-                 style="border:1px solid var(--border-md);cursor:pointer;transition:border-color .15s"
-                 data-val="${escHtml(inp.value)}">
-            <input type="radio" name="sdi-select" value="${escHtml(inp.value)}"
-                   class="form-check-input m-0"
-                   ${currentSdiInput === inp.value ? 'checked' : ''}
-                   onchange="onSdiSelect(this.value)">
-            <div style="flex:1">
-              <div style="font-size:0.82rem;font-weight:600;color:#fff">${escHtml(inp.label)}</div>
-              <div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace">${escHtml(inp.value)}</div>
-            </div>
-            ${inp.signal === true  ? '<span class="pill pill-onair" style="font-size:0.68rem"><i class="bi bi-dot"></i>SIGNAL</span>' : ''}
-            ${inp.signal === false ? '<span class="pill pill-idle" style="font-size:0.68rem">NO SIGNAL</span>' : ''}
-          </label>`).join('');
-        // Highlight currently saved
-        highlightSdiSelected();
-      } else {
-        badge.className = 'pill pill-idle';
-        badge.innerHTML = '<i class="bi bi-x-circle"></i> None detected';
-        list.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No SDI hardware detected — enter a custom source below.</div>';
-      }
-    })
-    .catch(() => {
-      document.getElementById('sdi-scan-badge').className = 'pill pill-idle';
-      document.getElementById('sdi-scan-badge').innerHTML = '<i class="bi bi-x-circle"></i> Scan failed';
+function renderPresets() {
+  const list = document.getElementById('preset-list');
+  if (!presets.length) {
+    list.innerHTML = '<div class="text-muted" style="font-size:0.85rem">No presets yet — add one to get started.</div>';
+    return;
+  }
+  const cur = document.getElementById('live-source-input').value.trim();
+  list.innerHTML = presets.map(p => `
+    <label class="d-flex align-items-center gap-2 p-2 mb-1 rounded preset-row"
+           style="border:1px solid var(--border-md);cursor:pointer;transition:border-color .15s"
+           data-url="${escHtml(p.url)}">
+      <input type="radio" name="preset-select" value="${escHtml(p.url)}"
+             class="form-check-input m-0"
+             ${cur === p.url ? 'checked' : ''}
+             onchange="onPresetSelect(this.value)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.82rem;font-weight:600;color:#fff">${escHtml(p.name)}</div>
+        <div class="mono" style="font-size:0.7rem;color:var(--text-muted)">${escHtml(p.url)}</div>
+      </div>
+      <button class="btn btn-xs btn-ghost" onclick="editPreset(${p.id},event)" title="Edit">
+        <i class="bi bi-pencil"></i>
+      </button>
+      <button class="btn btn-xs btn-ghost" onclick="deletePreset(${p.id},event)" title="Delete">
+        <i class="bi bi-trash"></i>
+      </button>
+    </label>`).join('');
+  highlightPresetSelected();
+}
+
+function highlightPresetSelected() {
+  const cur = document.getElementById('live-source-input').value.trim();
+  document.querySelectorAll('.preset-row').forEach(el => {
+    el.style.borderColor = el.dataset.url === cur ? 'var(--accent)' : '';
+  });
+}
+
+function onPresetSelect(url) {
+  document.getElementById('live-source-input').value = url;
+  highlightPresetSelected();
+}
+
+function showPresetForm(id) {
+  document.getElementById('pf-id').value   = id || '';
+  document.getElementById('pf-name').value = '';
+  document.getElementById('pf-url').value  = '';
+  if (id) {
+    const p = presets.find(p => p.id === id);
+    if (p) {
+      document.getElementById('pf-name').value = p.name;
+      document.getElementById('pf-url').value  = p.url;
+    }
+    document.getElementById('preset-form-title').textContent = 'Edit Preset';
+  } else {
+    document.getElementById('preset-form-title').textContent = 'Add Preset';
+  }
+  document.getElementById('preset-form').classList.remove('d-none');
+  document.getElementById('pf-name').focus();
+}
+
+function cancelPresetForm() {
+  document.getElementById('preset-form').classList.add('d-none');
+}
+
+function editPreset(id, e) {
+  e.preventDefault(); e.stopPropagation();
+  showPresetForm(id);
+}
+
+function deletePreset(id, e) {
+  e.preventDefault(); e.stopPropagation();
+  if (!confirm('Delete this preset?')) return;
+  fetch(`/api/presets/${id}`, {method:'DELETE'})
+    .then(r => r.json())
+    .then(() => {
+      const p = presets.find(p => p.id === id);
+      if (p && document.getElementById('live-source-input').value === p.url)
+        document.getElementById('live-source-input').value = '';
+      presets = presets.filter(p => p.id !== id);
+      renderPresets();
+      showToast('Preset deleted', 'info');
     });
 }
 
-function highlightSdiSelected() {
-  const cur = document.getElementById('sdi-custom').value.trim() || currentSdiInput;
-  document.querySelectorAll('.sdi-opt').forEach(el => {
-    el.style.borderColor = el.dataset.val === cur ? 'var(--accent)' : '';
-  });
-}
-
-function onSdiSelect(value) {
-  document.getElementById('sdi-custom').value = value;
-  highlightSdiSelected();
-}
-
-function saveSdiInput() {
-  const value = document.getElementById('sdi-custom').value.trim();
-  if (!value) { showToast('Enter a source value', 'warning'); return; }
-  fetch('/api/dektec/input', {
-    method: 'POST',
+function savePreset() {
+  const id   = document.getElementById('pf-id').value;
+  const name = document.getElementById('pf-name').value.trim();
+  const url  = document.getElementById('pf-url').value.trim();
+  if (!name || !url) { showToast('Name and URL are required', 'warning'); return; }
+  const method   = id ? 'PUT' : 'POST';
+  const endpoint = id ? `/api/presets/${id}` : '/api/presets';
+  fetch(endpoint, {
+    method,
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({value}),
-  })
-  .then(r => r.json())
-  .then(d => {
-    if (d.ok) {
-      currentSdiInput = value;
-      highlightSdiSelected();
-      // Update status pill
-      const pill = document.getElementById('sdi-status-pill');
-      pill.className = 'pill pill-live';
-      pill.innerHTML = `<i class="bi bi-broadcast"></i> ${escHtml(value)}`;
-      showToast('SDI input saved', 'success');
+    body: JSON.stringify({name, url}),
+  }).then(r => r.json()).then(d => {
+    if (d.error) { showToast(d.error, 'danger'); return; }
+    if (id) {
+      presets = presets.map(p => p.id === parseInt(id) ? d : p);
     } else {
-      showToast('Save failed: ' + (d.error || '?'), 'danger');
+      presets.push(d);
+      // Auto-select the new preset
+      document.getElementById('live-source-input').value = d.url;
     }
+    cancelPresetForm();
+    renderPresets();
+    showToast(id ? 'Preset updated' : 'Preset added', 'success');
   });
 }
 
-loadSdiInputs();
+// Sync preset highlight when URL is typed manually
+document.getElementById('live-source-input').addEventListener('input', highlightPresetSelected);
 
-// ---- SDI preview ----
-function startPreview() {
-  const source = document.getElementById('sdi-custom').value.trim() || currentSdiInput || 'dektec:0:0';
-  const panel  = document.getElementById('preview-panel');
-  const img    = document.getElementById('preview-img');
-  const label  = document.getElementById('preview-source-label');
-  const btn    = document.getElementById('btn-preview-start');
+renderPresets();
 
-  label.textContent = source;
-  img.src = `/api/preview?source=${encodeURIComponent(source)}&_t=${Date.now()}`;
-  panel.style.display = '';
-  btn.disabled = true;
-  img.onerror = () => {
-    showToast('Preview failed — check source or server log', 'danger');
-    stopPreview();
-  };
-}
-
-function stopPreview() {
-  const img   = document.getElementById('preview-img');
-  const panel = document.getElementById('preview-panel');
-  const btn   = document.getElementById('btn-preview-start');
-  img.src = '';
-  img.onerror = null;
-  panel.style.display = 'none';
-  btn.disabled = false;
-}
-
+// ---- Recording ----
 function startRecording() {
-  const source = document.getElementById('sdi-custom').value.trim() || currentSdiInput || 'dektec:0:0';
+  const source = document.getElementById('live-source-input').value.trim();
+  if (!source) { showToast('Select or enter a source URL first', 'warning'); return; }
   fetch('/api/recording/start', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({live_source: source})
@@ -356,10 +364,10 @@ function startRecording() {
     }
   });
 }
+
 function stopRecording() {
-  fetch('/api/recording/stop', {method:'POST', headers:{'Content-Type':'application/json'},
-    body:'{}'})
-    .then(r=>r.json())
+  fetch('/api/recording/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(r => r.json())
     .then(() => {
       document.getElementById('btn-rec-start').disabled = false;
       document.getElementById('btn-rec-stop').disabled  = true;
