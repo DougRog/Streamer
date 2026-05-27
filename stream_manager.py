@@ -423,9 +423,11 @@ class StreamManager:
         if seek > 2.0:
             cmd += ['-ss', f'{seek:.3f}']
         cmd += ['-re', '-copyts', '-i', asset_path]
-        # Map video, audio, optional data (SCTE-35)
-        cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
-        cmd += self._common_video_args(channel)
+        if getattr(channel, 'native_output', False):
+            cmd += ['-map', '0', '-c', 'copy']
+        else:
+            cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
+            cmd += self._common_video_args(channel)
         cmd += self._mpegts_out_args(channel)
         return cmd
 
@@ -433,8 +435,11 @@ class StreamManager:
         cmd = [FFMPEG_PATH, '-hide_banner', '-nostdin', '-loglevel', 'level+info']
         cmd += input_args
         cmd += ['-copyts']
-        cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
-        cmd += self._common_video_args(channel)
+        if getattr(channel, 'native_output', False):
+            cmd += ['-map', '0', '-c', 'copy']
+        else:
+            cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
+            cmd += self._common_video_args(channel)
         cmd += self._mpegts_out_args(channel)
         return cmd
 
@@ -447,9 +452,12 @@ class StreamManager:
         cmd += ['-copyts']
 
         if channel:
-            # Output 1: transcoded multicast (re-encoded A/V + pass-through data)
-            cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
-            cmd += self._common_video_args(channel)
+            # Output 1: multicast
+            if getattr(channel, 'native_output', False):
+                cmd += ['-map', '0', '-c', 'copy']
+            else:
+                cmd += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:d?']
+                cmd += self._common_video_args(channel)
             cmd += self._mpegts_out_args(channel)
             # Output 2: raw MPEG-TS file — all streams verbatim, SCTE-35 intact
             cmd += ['-map', '0', '-c', 'copy', '-f', 'mpegts', out_path]

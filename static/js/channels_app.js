@@ -6,8 +6,10 @@ function openCreateModal() {
   document.getElementById('cf-name').value         = '';
   document.getElementById('cf-addr').value         = '239.1.1.1';
   document.getElementById('cf-port').value         = '5000';
-  document.getElementById('cf-bitrate').value      = '6M';
+  document.getElementById('cf-bitrate').value        = '6M';
+  document.getElementById('cf-native-output').checked = false;
   document.getElementById('cf-slate').checked      = true;
+  toggleNativeOutput();
   document.getElementById('cf-color').value        = '#6366f1';
   document.getElementById('cf-epg-filename').value = '';
   document.getElementById('cf-notes').value        = '';
@@ -27,8 +29,10 @@ function editChannel(id) {
       document.getElementById('cf-name').value    = ch.name;
       document.getElementById('cf-addr').value    = ch.multicast_addr;
       document.getElementById('cf-port').value    = ch.multicast_port;
-      document.getElementById('cf-bitrate').value = ch.video_bitrate || '6M';
+      document.getElementById('cf-bitrate').value        = ch.video_bitrate || '6M';
+      document.getElementById('cf-native-output').checked = !!ch.native_output;
       document.getElementById('cf-slate').checked = ch.slate_enabled;
+      toggleNativeOutput();
       document.getElementById('cf-color').value        = ch.color || '#6366f1';
       document.getElementById('cf-epg-filename').value = ch.epg_filename || '';
       document.getElementById('cf-notes').value        = ch.notes || '';
@@ -40,6 +44,11 @@ function editChannel(id) {
       toggleSlateAsset();
       channelModal.show();
     });
+}
+
+function toggleNativeOutput() {
+  const native = document.getElementById('cf-native-output').checked;
+  document.getElementById('bitrate-row').style.display = native ? 'none' : '';
 }
 
 function toggleSlateOptions() {
@@ -69,11 +78,13 @@ function saveChannel() {
   const slateEnabled = document.getElementById('cf-slate').checked;
   const slateType = document.querySelector('input[name=cf-slate-type]:checked')?.value || 'color';
 
+  const nativeOutput = document.getElementById('cf-native-output').checked;
   const payload = {
     name:             document.getElementById('cf-name').value.trim(),
     multicast_addr:   document.getElementById('cf-addr').value.trim(),
     multicast_port:   parseInt(document.getElementById('cf-port').value),
     video_bitrate:    document.getElementById('cf-bitrate').value,
+    native_output:    nativeOutput,
     slate_enabled:    slateEnabled,
     slate_type:       slateType,
     slate_asset_path: slateType === 'file'

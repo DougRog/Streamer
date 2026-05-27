@@ -17,6 +17,7 @@ class Channel(db.Model):
     slate_enabled = db.Column(db.Boolean, default=True)
     slate_type = db.Column(db.String(20), default='color')   # 'color' | 'file'
     slate_asset_path = db.Column(db.String(500))
+    native_output = db.Column(db.Boolean, default=False)     # copy streams, no transcode
     epg_filename = db.Column(db.String(100))   # user-defined EPG filename stem (no extension)
     color = db.Column(db.String(20), default='#3788d8')
     notes = db.Column(db.Text)
@@ -40,6 +41,7 @@ class Channel(db.Model):
             'slate_enabled': self.slate_enabled,
             'slate_type': self.slate_type or 'color',
             'slate_asset_path': self.slate_asset_path or '',
+            'native_output': bool(self.native_output),
             'epg_filename': self.epg_filename or '',
             'color': self.color,
             'notes': self.notes,

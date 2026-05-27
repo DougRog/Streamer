@@ -68,6 +68,7 @@ def create_app():
             'ALTER TABLE channels ADD COLUMN slate_type VARCHAR(20) NOT NULL DEFAULT "color"',
             'ALTER TABLE channels ADD COLUMN slate_asset_path VARCHAR(500)',
             'ALTER TABLE channels ADD COLUMN epg_filename VARCHAR(100)',
+            'ALTER TABLE channels ADD COLUMN native_output BOOLEAN NOT NULL DEFAULT 0',
             'ALTER TABLE schedule_entries ADD COLUMN recording_path VARCHAR(500)',
             'ALTER TABLE schedule_entries ADD COLUMN scte35_enabled BOOLEAN NOT NULL DEFAULT 0',
             'ALTER TABLE schedule_entries ADD COLUMN scte35_out_of_network BOOLEAN NOT NULL DEFAULT 1',
@@ -140,6 +141,7 @@ def create_app():
             slate_type=data.get('slate_type', 'color'),
             slate_asset_path=data.get('slate_asset_path') or None,
             epg_filename=data.get('epg_filename') or None,
+            native_output=bool(data.get('native_output', False)),
             color=data.get('color', '#3788d8'),
             notes=data.get('notes', ''),
         )
@@ -160,7 +162,8 @@ def create_app():
         data = request.get_json(force=True)
         for field in ('name', 'multicast_addr', 'multicast_port',
                       'video_bitrate', 'slate_enabled', 'color', 'notes',
-                      'slate_type', 'slate_asset_path', 'epg_filename'):
+                      'slate_type', 'slate_asset_path', 'epg_filename',
+                      'native_output'):
             if field in data:
                 null_if_empty = field in ('slate_asset_path', 'epg_filename')
                 setattr(ch, field, data[field] or None if null_if_empty else data[field])
