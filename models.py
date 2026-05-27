@@ -73,6 +73,7 @@ class ScheduleEntry(db.Model):
     scte35_enabled = db.Column(db.Boolean, default=False)
     scte35_out_of_network = db.Column(db.Boolean, default=True)
     scte35_event_id = db.Column(db.Integer, default=0)   # 0 = auto-generate at inject time
+    scte35_inject_at = db.Column(db.String(10), default='start')  # 'start' | 'end' | 'both'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     overrides = db.relationship(
@@ -117,6 +118,7 @@ class ScheduleEntry(db.Model):
             'scte35_enabled': bool(self.scte35_enabled),
             'scte35_out_of_network': bool(self.scte35_out_of_network if self.scte35_out_of_network is not None else True),
             'scte35_event_id': self.scte35_event_id or 0,
+            'scte35_inject_at': self.scte35_inject_at or 'start',
         }
 
 

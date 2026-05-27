@@ -72,6 +72,7 @@ def create_app():
             'ALTER TABLE schedule_entries ADD COLUMN scte35_enabled BOOLEAN NOT NULL DEFAULT 0',
             'ALTER TABLE schedule_entries ADD COLUMN scte35_out_of_network BOOLEAN NOT NULL DEFAULT 1',
             'ALTER TABLE schedule_entries ADD COLUMN scte35_event_id INTEGER NOT NULL DEFAULT 0',
+            "ALTER TABLE schedule_entries ADD COLUMN scte35_inject_at VARCHAR(10) NOT NULL DEFAULT 'start'",
         ]:
             try:
                 db.session.execute(text(stmt))
@@ -295,6 +296,7 @@ def create_app():
                 'scte35Enabled': bool(entry.scte35_enabled),
                 'scte35OutOfNetwork': bool(entry.scte35_out_of_network if entry.scte35_out_of_network is not None else True),
                 'scte35EventId': entry.scte35_event_id or 0,
+                'scte35InjectAt': entry.scte35_inject_at or 'start',
                 **extra_props,
             },
         }
@@ -676,6 +678,9 @@ def create_app():
             entry.scte35_out_of_network = bool(data['scte35_out_of_network'])
         if 'scte35_event_id' in data:
             entry.scte35_event_id = int(data.get('scte35_event_id') or 0)
+        if 'scte35_inject_at' in data:
+            val = (data['scte35_inject_at'] or 'start').strip()
+            entry.scte35_inject_at = val if val in ('start', 'end', 'both') else 'start'
 
         if not entry.title:
             raise ValueError('title is required')

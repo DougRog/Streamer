@@ -236,6 +236,7 @@ class PlayoutScheduler:
         self._last_epg_upload = None    # datetime of last successful EPG push
         self._slate_last_attempt: dict = {}    # channel_id → last slate start time
         self._content_last_attempt: dict = {}  # channel_id → last content start time
+        self._playing_scte: dict = {}   # channel_id → scte35 snapshot for end-of-event injection
 
     def start(self):
         self._thread = threading.Thread(
@@ -294,7 +295,9 @@ class PlayoutScheduler:
         if entry is None:
             if prev is not None:
                 logger.info(f'[ch{channel.id}] No content scheduled; {"starting slate" if channel.slate_enabled else "stopping"}')
+                self._inject_scte35_end(channel)   # fire any pending end-of-event cue
                 self._playing.pop(channel.id, None)
+                self._playing_scte.pop(channel.id, None)
                 if channel.slate_enabled:
                     self._sm.start_slate(channel)
                     self._slate_last_attempt[channel.id] = now
@@ -318,6 +321,7 @@ class PlayoutScheduler:
                     self._content_last_attempt[channel.id] = now
             return
 
+        self._inject_scte35_end(channel)   # fire pending end-of-event cue before switching
         logger.info(
             f'[ch{channel.id}] Switch → "{entry.title}" '
             f'({entry.entry_type}) start={occ_start.isoformat()}'
@@ -325,6 +329,17 @@ class PlayoutScheduler:
         self._launch(channel, entry, occ_start)
         self._playing[channel.id] = key
         self._content_last_attempt[channel.id] = now
+        # Snapshot SCTE-35 settings for potential end-of-event injection
+        if getattr(entry, 'scte35_enabled', False):
+            self._playing_scte[channel.id] = {
+                'enabled':    True,
+                'oon':        bool(getattr(entry, 'scte35_out_of_network', True)),
+                'eid':        getattr(entry, 'scte35_event_id', 0) or 0,
+                'inject_at':  getattr(entry, 'scte35_inject_at', 'start') or 'start',
+                'dur':        0.0,   # end-of-event cues don't carry duration
+            }
+        else:
+            self._playing_scte.pop(channel.id, None)
 
     def _launch(self, channel, entry, occ_start):
         if entry.entry_type == 'file':
@@ -341,10 +356,12 @@ class PlayoutScheduler:
             return
 
         if getattr(entry, 'scte35_enabled', False):
-            self._inject_scte35(channel, entry)
+            inject_at = getattr(entry, 'scte35_inject_at', 'start') or 'start'
+            if inject_at in ('start', 'both'):
+                self._fire_scte35(channel, entry)
 
-    def _inject_scte35(self, channel, entry):
-        """Send a SCTE-35 splice_insert cue in a background thread."""
+    def _fire_scte35(self, channel, entry):
+        """Inject start-of-event SCTE-35 cue in a background thread."""
         oon      = bool(getattr(entry, 'scte35_out_of_network', True))
         raw_eid  = getattr(entry, 'scte35_event_id', 0) or 0
         event_id = raw_eid if raw_eid else (int(time.time()) & 0xFFFFFFFF)
@@ -355,9 +372,31 @@ class PlayoutScheduler:
                 from scte35_injector import inject_splice_insert
                 inject_splice_insert(channel, event_id, oon, dur)
             except Exception:
-                logger.exception(f'[ch{channel.id}] SCTE-35 injection error')
+                logger.exception(f'[ch{channel.id}] SCTE-35 start injection error')
 
         threading.Thread(target=_send, daemon=True, name=f'scte35-ch{channel.id}').start()
+
+    def _inject_scte35_end(self, channel):
+        """Fire end-of-event SCTE-35 cue if the current event is configured for it."""
+        snap = self._playing_scte.get(channel.id)
+        if not snap or not snap.get('enabled'):
+            return
+        if snap.get('inject_at', 'start') not in ('end', 'both'):
+            return
+
+        oon      = snap['oon']
+        raw_eid  = snap.get('eid', 0) or 0
+        # Use a distinct event_id for the end cue so downstream can pair them
+        event_id = ((raw_eid + 1) & 0xFFFFFFFF) if raw_eid else (int(time.time()) & 0xFFFFFFFF)
+
+        def _send():
+            try:
+                from scte35_injector import inject_splice_insert
+                inject_splice_insert(channel, event_id, oon, 0.0)
+            except Exception:
+                logger.exception(f'[ch{channel.id}] SCTE-35 end injection error')
+
+        threading.Thread(target=_send, daemon=True, name=f'scte35-end-ch{channel.id}').start()
 
 
 scheduler = None

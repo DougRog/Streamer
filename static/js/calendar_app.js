@@ -192,9 +192,12 @@ function openEditModal(fcEvent) {
   toggleLoopHint();
   document.getElementById('f-scte35-enabled').checked = !!ep.scte35Enabled;
   document.querySelector(`input[name=scte35OON][value="${ep.scte35OutOfNetwork ? 1 : 0}"]`).checked = true;
+  const injectAt = ep.scte35InjectAt || 'start';
+  document.querySelector(`input[name=scte35Pos][value="${injectAt}"]`).checked = true;
   document.getElementById('f-scte35-event-id').value  = ep.scte35EventId || 0;
   toggleScte35Fields();
   highlightScteLabel(ep.scte35OutOfNetwork ? 'out' : 'in');
+  highlightSctePosLabel(injectAt);
 
   const typeVal = ep.entryType || 'file';
   document.querySelector(`input[name=entryType][value=${typeVal}]`).checked = true;
@@ -246,6 +249,7 @@ function saveEvent() {
     loop_enabled: entryType === 'file' && document.getElementById('f-loop-enabled').checked,
     scte35_enabled:        document.getElementById('f-scte35-enabled').checked,
     scte35_out_of_network: document.querySelector('input[name=scte35OON]:checked')?.value === '1',
+    scte35_inject_at:      document.querySelector('input[name=scte35Pos]:checked')?.value || 'start',
     scte35_event_id:       parseInt(document.getElementById('f-scte35-event-id').value || '0', 10),
   };
 
@@ -507,9 +511,11 @@ function resetForm() {
   toggleLoopHint();
   document.getElementById('f-scte35-enabled').checked = false;
   document.querySelector('input[name=scte35OON][value="1"]').checked = true;
+  document.querySelector('input[name=scte35Pos][value="start"]').checked = true;
   document.getElementById('f-scte35-event-id').value  = '0';
   toggleScte35Fields();
   highlightScteLabel('out');
+  highlightSctePosLabel('start');
   document.querySelector('input[name=entryType][value=file]').checked = true;
   document.querySelector('input[name=editMode][value=this]').checked  = true;
   toggleTypePanels('file');
@@ -555,8 +561,7 @@ function toggleLoopHint() {
 
 function toggleScte35Fields() {
   const on = document.getElementById('f-scte35-enabled').checked;
-  document.getElementById('scte35-oon-col').classList.toggle('d-none', !on);
-  document.getElementById('scte35-eid-col').classList.toggle('d-none', !on);
+  document.getElementById('scte35-detail-cols').classList.toggle('d-none', !on);
   if (on) document.getElementById('scteFields').classList.add('show');
 }
 
@@ -564,6 +569,15 @@ function highlightScteLabel(which) {
   document.getElementById('scte-out-label').style.borderColor = '';
   document.getElementById('scte-in-label').style.borderColor  = '';
   const active = document.getElementById(which === 'out' ? 'scte-out-label' : 'scte-in-label');
+  if (active) active.style.borderColor = 'var(--accent)';
+}
+
+function highlightSctePosLabel(pos) {
+  ['start','end','both'].forEach(p => {
+    const el = document.getElementById(`scte-pos-${p}-label`);
+    if (el) el.style.borderColor = '';
+  });
+  const active = document.getElementById(`scte-pos-${pos}-label`);
   if (active) active.style.borderColor = 'var(--accent)';
 }
 
